@@ -1,0 +1,15 @@
+# IntelliJ / IDEA
+.idea/
+*.iml
+
+# Gradle build
+.gradle/
+build/
+out/
+
+# 시스템 파일
+.DS_Store
+Thumbs.db
+
+# 로그
+*.log
