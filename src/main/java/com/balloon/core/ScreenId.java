@@ -22,4 +22,6 @@ public final class ScreenId {
 
     //실제 게임 화면의 식별자
     public static final String GAME = "GAME";
+
+    public static final String RESULT  = "result";
 }

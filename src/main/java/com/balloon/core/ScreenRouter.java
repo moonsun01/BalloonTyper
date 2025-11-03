@@ -1,59 +1,59 @@
-// 이 클래스는 화면 전환을 담당하는 "라우터"야.
-// 내부에 CardLayout을 쓰고, 화면을 id(문자열)로 등록/표시한다.
 package com.balloon.core;
 
-import javax.swing.*;  // JPanel, JComponent 같은 Swing 컴포넌트 사용
-import java.awt.*;     // CardLayout 사용
+import javax.swing.*;
+import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * ScreenRouter
- * - CardLayout 기반의 화면 전환 컨트롤러
- * - 화면을 문자열 id로 등록하고, 필요할 때 show(id)로 전환
- * - 장점: 프레임 교체 없이 빠르고 깔끔하게 화면 전환 가능
+ * CardLayout 기반 화면 라우터 (싱글턴)
+ * - register(id, comp): 화면 등록
+ * - show(id): onHidden → 카드 전환 → onShown
  */
-public class ScreenRouter {
+public final class ScreenRouter {
 
-    // 화면들이 붙을 "루트 컨테이너" (CardLayout을 적용한 패널)
-    private final JPanel root;
+    // ====== 싱글턴 ======
+    private static final ScreenRouter INSTANCE = new ScreenRouter();
+    public static ScreenRouter get() { return INSTANCE; }
+    private ScreenRouter() { /* 외부 생성 금지 */ }
 
-    // 카드처럼 화면을 넘겨주는 레이아웃
-    private final CardLayout layout;
+    // ====== 내부 상태 ======
+    private final JPanel root = new JPanel(new CardLayout());  // 카드 컨테이너
+    private final CardLayout card = (CardLayout) root.getLayout();
+    private final Map<String, Component> views = new HashMap<>();
+    private String currentId = null;
 
-    // 등록된 화면을 보관하는 레지스트리 (id -> 화면 컴포넌트)
-    private final Map<String, JComponent> registry = new HashMap<>();
+    /** 외부 프레임/런처에서 setContentPane(root)로 붙여서 사용 */
+    public JPanel getRoot() { return root; }
 
-    // 생성자: CardLayout을 가진 JPanel을 만들고, root로 사용
-    public ScreenRouter() {
-        this.layout = new CardLayout();   // 카드 넘김 담당
-        this.root = new JPanel(layout);   // layout이 적용된 컨테이너
-    }
-
-    // 외부에서 프레임의 contentPane으로 붙일 때 필요: frame.setContentPane(router.getRoot())
-    public JPanel getRoot() {
-        return root;
-    }
-
-    // 화면 등록: 특정 id로 JComponent(화면 패널)를 등록한다.
-    // 예) router.register(ScreenId.START, new StartMenuUI(router));
-    public void register(String id, JComponent screen) {
-        registry.put(id, screen);  // Map에도 저장 (존재 확인/디버그에 유용)
-        root.add(screen, id);      // CardLayout에 (컴포넌트, 이름)으로 추가
-    }
-
-    // 화면 전환: 해당 id가 등록되어 있어야 한다.
-    // 없으면 실수 방지를 위해 예외를 던진다.
-    public void show(String id) {
-        if (!registry.containsKey(id)) {
-            throw new IllegalArgumentException("Unregistered screen id: " + id);
+    /** 화면 등록: root에 add하고 맵에도 보관 */
+    public void register(String id, Component comp) {
+        if (!views.containsKey(id)) {
+            views.put(id, comp);
+            root.add(comp, id);
         }
-        layout.show(root, id);     // CardLayout에게 "이 이름의 카드 보여줘"라고 지시
+    }
 
-        //전환 완료 후, 해당 화면이 showable이면 onshown() 호출
-        var comp = registry.get(id);
-        if (comp instanceof com.balloon.core.Showable s) {
-            s.onShown();
+    /** 화면 전환: onHidden → 카드 전환 → onShown */
+    public void show(String id) {
+        if (!views.containsKey(id)) return;
+
+        // 1) 이전 화면 onHidden()
+        if (currentId != null) {
+            Component prev = views.get(currentId);
+            if (prev instanceof Showable) {
+                ((Showable) prev).onHidden();
+            }
+        }
+
+        // 2) 카드 전환
+        card.show(root, id);
+        currentId = id;
+
+        // 3) 새 화면 onShown()
+        Component now = views.get(id);
+        if (now instanceof Showable) {
+            ((Showable) now).onShown();
         }
     }
 }
