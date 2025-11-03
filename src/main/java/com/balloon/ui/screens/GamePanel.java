@@ -3,6 +3,12 @@ package com.balloon.ui.screens;
 import com.balloon.core.Showable;
 import com.balloon.ui.InputBuffer;
 
+// ★ NEW: 풍선 모델/렌더러/테마 임포트
+import com.balloon.game.model.Balloon;
+import com.balloon.game.model.Balloon.Kind;
+import com.balloon.game.render.BalloonRenderer;
+import com.balloon.ui.theme.Theme;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
@@ -10,10 +16,9 @@ import java.awt.event.KeyEvent;
 import java.util.List;
 
 /**
- * Day3 (2/3): HUD 타이머 + 단어 매칭
- * - 남은 시간 카운트다운
- * - 현재 타겟 단어 표시
- * - Enter로 정답 판정(일치하면 점수++)
+ * GamePanel :
+ * 기존 HUD/입력/키입력 구조는 유지하고,
+ * 중앙 플레이 영역만 내부 클래스 PlayField로 바꿔서 풍선 렌더링을 담당시킨다.
  */
 public class GamePanel extends JPanel implements Showable {
 
@@ -32,9 +37,12 @@ public class GamePanel extends JPanel implements Showable {
     // --- UI 컴포넌트 ---
     private final JLabel timeLabel = new JLabel("Time: 60");
     private final JLabel scoreLabel = new JLabel("Score: 0");
-    private final JLabel wordLabel = new JLabel("", SwingConstants.CENTER); // 현재 타겟 단어
-    private final JLabel inputLabel = new JLabel("▶ ", SwingConstants.LEFT); // 입력 표시
-    private final JLabel toastLabel = new JLabel(" ", SwingConstants.CENTER); // 성공/실패 토스트
+    private final JLabel wordLabel  = new JLabel("", SwingConstants.CENTER);   // 현재 타겟 단어
+    private final JLabel inputLabel = new JLabel("▶ ", SwingConstants.LEFT);   // 입력 표시
+    private final JLabel toastLabel = new JLabel(" ", SwingConstants.CENTER);  // 성공/실패 토스트
+
+    // ★ NEW: 중앙 플레이 영역(풍선 캔버스) 참조
+    private PlayField playField;
 
     private boolean caretOn = true;
     private final Timer caretTimer;   // 입력 캐럿 깜빡임
@@ -42,46 +50,47 @@ public class GamePanel extends JPanel implements Showable {
 
     public GamePanel() {
         setLayout(new BorderLayout());
-        setBackground(Color.WHITE);
+        setBackground(Theme.BG_DARK); // ★ CHANGED: 전체 배경을 Theme 다크 톤으로
 
         // 상단 HUD
         JPanel hud = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
+        // ★ 옵션(디자인 톤 통일): HUD도 다크 톤으로 깔끔하게
+        hud.setBackground(Theme.BG_PANEL);                // ★ NEW
+        timeLabel.setForeground(Theme.FG_TEXT);           // ★ NEW
+        scoreLabel.setForeground(Theme.FG_TEXT);          // ★ NEW
         hud.add(timeLabel);
         hud.add(scoreLabel);
         add(hud, BorderLayout.NORTH);
 
-        // 중앙 플레이 영역
-        JPanel playArea = new JPanel(new BorderLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                Graphics2D g2 = (Graphics2D) g;
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(new Color(245, 247, 252));
-                g2.fillRoundRect(20, 20, getWidth() - 40, getHeight() - 40, 16, 16);
-            }
-        };
-        playArea.setBackground(new Color(250, 252, 255));
+        // ================================
+        // ★ CHANGED: 중앙 플레이 영역 교체
+        // 기존 익명 JPanel playArea {...} 블록 전체 삭제하고 PlayField 사용
+        // ================================
+        playField = new PlayField();                      // ★ NEW: 풍선 렌더 캔버스
+        playField.setLayout(new BorderLayout());          // 가운데 단어/아래 토스트 배치
+        add(playField, BorderLayout.CENTER);              // 중앙에 추가
 
+        // 중앙에 단어 라벨(크게) 배치
         wordLabel.setFont(wordLabel.getFont().deriveFont(Font.BOLD, 36f));
-        playArea.add(wordLabel, BorderLayout.CENTER);
+        wordLabel.setForeground(Color.WHITE);             // ★ NEW: 다크 배경 대비
+        playField.add(wordLabel, BorderLayout.CENTER);
 
+        // 토스트(성공/실패) 라벨
         toastLabel.setForeground(new Color(80, 120, 80));
         toastLabel.setFont(toastLabel.getFont().deriveFont(Font.PLAIN, 16f));
-        playArea.add(toastLabel, BorderLayout.SOUTH);
-
-        add(playArea, BorderLayout.CENTER);
+        playField.add(toastLabel, BorderLayout.SOUTH);
 
         // 하단 입력바
         JPanel inputBar = new JPanel(new BorderLayout());
         inputBar.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
-        inputBar.setBackground(Color.WHITE);
+        inputBar.setBackground(Theme.BG_PANEL);           // ★ CHANGED: 다크 톤 일관화
 
         inputLabel.setFont(inputLabel.getFont().deriveFont(Font.BOLD, 16f));
+        inputLabel.setForeground(Theme.FG_TEXT);          // ★ NEW
         inputBar.add(inputLabel, BorderLayout.CENTER);
 
         JLabel hint = new JLabel("타이핑 · Enter=확인 · Backspace=삭제 · Esc=지우기");
-        hint.setForeground(new Color(130, 140, 160));
+        hint.setForeground(new Color(160, 170, 190));     // ★ CHANGED: 다크 톤에서 가독성
         inputBar.add(hint, BorderLayout.EAST);
 
         add(inputBar, BorderLayout.SOUTH);
@@ -192,8 +201,64 @@ public class GamePanel extends JPanel implements Showable {
     }
 
     /** 라우터가 카드 전환 직후 호출해 포커스/타이머를 보장 */
-    @Override                   // 표시 직후 포커스/타이머 보장
-    public void onShown() {
+    @Override
+    public void onShown() { // 표시 직후 포커스/타이머 보장
         grabFocusSafely();
+    }
+
+    // ==========================================================
+    // ★ NEW: 내부 클래스 PlayField
+    //  - 중앙 영역을 담당하는 캔버스: 배경(라운드 박스) + 풍선 렌더링 + 애니메이션
+    //  - 기존 익명 JPanel을 대체한다.
+    // ==========================================================
+    private final class PlayField extends JPanel {
+        private final BalloonRenderer renderer = new BalloonRenderer();
+        private final java.util.List<Balloon> balloons = new java.util.ArrayList<>();
+        private final Timer frameTimer; // ~60fps
+
+        PlayField() {
+            setOpaque(true);
+            setBackground(Theme.BG_DARK);
+
+            // 데모용 풍선 스폰(이후 WordProvider/Spawner로 교체 예정)
+            spawnDemoBalloons();
+
+            // 16ms ≈ 60fps 주기로 모델 업데이트 + 화면 리페인트
+            frameTimer = new Timer(16, e -> {
+                updateModel();
+                repaint();
+            });
+            frameTimer.start();
+        }
+
+        private void spawnDemoBalloons() {
+            balloons.add(new Balloon("apple", 120, 360, 28, Kind.RED));
+            balloons.add(new Balloon("river", 260, 420, 32, Kind.BLUE));
+            balloons.add(new Balloon("green", 400, 390, 30, Kind.GREEN));
+            balloons.add(new Balloon("delta", 540, 450, 26, Kind.BLUE));
+            balloons.add(new Balloon("timer", 680, 410, 28, Kind.RED));
+        }
+
+        private void updateModel() {
+            for (Balloon b : balloons) b.update();                // 위로 이동
+            balloons.removeIf(b -> b.isOffscreenTop(getHeight())); // 화면 밖 제거
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            final Graphics2D g2 = (Graphics2D) g.create();
+
+            // 1) 배경: 라운드 박스 + 그라디언트(살짝 깊이감)
+            Paint old = g2.getPaint();
+            g2.setPaint(new GradientPaint(0, 0, Theme.BG_DARK, 0, getHeight(), Theme.BG_PANEL));
+            g2.fillRoundRect(20, 20, getWidth() - 40, getHeight() - 40, 16, 16);
+            g2.setPaint(old);
+
+            // 2) 풍선 렌더링
+            renderer.render(g2, balloons);
+
+            g2.dispose();
+        }
     }
 }
