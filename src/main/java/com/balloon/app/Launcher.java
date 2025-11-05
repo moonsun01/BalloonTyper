@@ -7,7 +7,7 @@ import com.balloon.ui.PlaceholderScreen;
 import com.balloon.ui.StartMenuUI;
 import com.balloon.ui.screens.GamePanel;
 import com.balloon.ui.theme.Theme;
-
+import com.balloon.ui.screens.ResultScreen;  // ★ 추가
 
 import javax.swing.*;
 import java.awt.*;
@@ -37,14 +37,16 @@ public class Launcher {
             frame.setLocationRelativeTo(null); // 화면 정중앙 배치
 
             // -------------------- [2] 라우터 생성 --------------------
-            ScreenRouter router = new ScreenRouter();
+            ScreenRouter router = ScreenRouter.get();
 
             // -------------------- [3] 화면 등록 --------------------
             // register(화면ID, 컴포넌트)
             router.register(ScreenId.START,   new StartMenuUI(router));          // 시작 화면
-            router.register(ScreenId.GAME,  new GamePanel());     // ← GamePanel 등록
+            router.register(ScreenId.GAME,  new GamePanel(router));     // ← GamePanel 등록
             router.register(ScreenId.GUIDE,   new PlaceholderScreen("GUIDE"));   // 임시 가이드
             router.register(ScreenId.RANKING, new PlaceholderScreen("RANKING"));// 임시 랭킹
+            // ★ 아래 줄을 추가
+            router.register(ScreenId.RESULT,  new ResultScreen(router));        // 결과 화면
 
             // -------------------- [4] 라우터 루트패널을 JFrame에 붙이기 --------------------
             frame.setContentPane(router.getRoot());
