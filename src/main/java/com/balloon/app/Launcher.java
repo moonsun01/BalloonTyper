@@ -6,6 +6,7 @@ import com.balloon.core.ScreenRouter;
 import com.balloon.ui.PlaceholderScreen;
 import com.balloon.ui.StartMenuUI;
 import com.balloon.ui.screens.GamePanel;
+import com.balloon.ui.theme.Theme;
 
 
 import javax.swing.*;
@@ -19,6 +20,13 @@ import java.awt.*;
 public class Launcher {
 
     public static void main(String[] args) {
+
+        // ① OS 룩앤필 적용(버튼/체크박스가 OS 스타일로 보이게)
+        try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); } catch (Exception ignore) {}
+
+        // ② 전역 Theme 주입(프레임/컴포넌트 생성 '이전'에 반드시 실행!)
+        Theme.applyGlobalUI();
+
         // Swing 프로그램은 이벤트 디스패치 스레드(EDT) 안에서 실행해야 안전함
         SwingUtilities.invokeLater(() -> {
 
