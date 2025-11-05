@@ -1,126 +1,104 @@
-// 패키지: 기존 화면들이 있는 ui.screens 하위
-package com.balloon.ui.screens;
-import com.balloon.ui.screens.GamePanel; //마지막 스테이지 읽기용
+package com.balloon.ui.screens;                                      // 결과 화면 패키지
 
-// 결과 전달 컨텍스트/데이터, 화면 표시 훅 인터페이스
-import com.balloon.core.ResultContext;
-import com.balloon.core.ResultData;
-import com.balloon.core.Showable;
+import com.balloon.core.ScreenId;                                    // 화면 식별자(enum)
+import com.balloon.core.ScreenRouter;                                // 라우터
+import com.balloon.ranking.RankingCSV;                               // CSV 유틸
+import com.balloon.ranking.RankingEntry;                             // DTO
+import com.balloon.ui.theme.Theme;                                   // 테마(색/폰트)
+import javax.swing.*;                                                // 스윙 컴포넌트
+import java.awt.*;                                                   // 레이아웃/색
+// 결과 -> 랭킹 저장/이동 화면
 
-// 라우팅에 필요
-import com.balloon.core.ScreenId;
-import com.balloon.core.ScreenRouter;
+public class ResultScreen extends JPanel {                            // 패널 상속
+    private final ScreenRouter router;                                // 라우터 참조
+    private int score = 0;                                            // 최종 점수
+    private double accuracy = 0.0;                                    // 최종 정확도
+    private int timeLeft = 0;                                         // 남은 시간(초)
 
-// 스윙/그래픽 유틸
-import javax.swing.*;
-import java.awt.*;
+    private final JLabel lScore = new JLabel("Score: 0");             // 점수 라벨
+    private final JLabel lAcc   = new JLabel("Accuracy: 0.00%");      // 정확도 라벨
+    private final JLabel lTime  = new JLabel("Time Left: 0s");        // 시간 라벨
 
-// 결과 화면: Router가 이 패널을 CardLayout에 붙여 전환
-public class ResultScreen extends JPanel implements Showable {
+    public ResultScreen(ScreenRouter router) {                        // 생성자
+        this.router = router;                                         // 라우터 저장
+        setLayout(new BorderLayout(Theme.gapMD(), Theme.gapMD()));    // 여백 포함 보더 레이아웃
+        setBackground(Theme.bgColor());                               // 배경색 적용
 
-    // ─────────────────────────[ 로컬 UI 헬퍼 ]────────────────────────
-    // 파일 추가 없이 진행하기 위해 Theme 의존 제거 → 내부 헬퍼로 대체
-    private static Color bg()  { return new Color(0x0F, 0x12, 0x18); }         // 배경색
-    private static Color fg()  { return Color.WHITE; }                         // 글자색
-    private static Font  h1()  { return new Font("Dialog", Font.BOLD, 32); }   // 타이틀 폰트
-    private static Font  h2()  { return new Font("Dialog", Font.BOLD, 24); }   // 본문 폰트
-    private static Font  h3()  { return new Font("Dialog", Font.PLAIN, 18); }  // 보조 폰트
-    private static Font  btnF(){ return new Font("Dialog", Font.BOLD, 16); }   // 버튼 폰트
-    // ────────────────────────────────────────────────────────────────
+        JLabel title = new JLabel("RESULT");                          // 상단 제목
+        title.setFont(Theme.h1());                                    // 큰 제목 폰트
+        title.setHorizontalAlignment(SwingConstants.CENTER);           // 가운데 정렬
+        add(title, BorderLayout.NORTH);                               // 상단 배치
 
-    // 라우터(버튼 액션에서 사용)
-    private final ScreenRouter router;                                         // ★ 라우터 참조
+        JPanel center = new JPanel(new GridLayout(3,1,8,8));          // 중간 정보 영역
+        center.setOpaque(false);                                      // 부모 배경 사용
+        lScore.setFont(Theme.h2());                                   // 점수 폰트
+        lAcc.setFont(Theme.h2());                                     // 정확도 폰트
+        lTime.setFont(Theme.h2());                                    // 시간 폰트
+        center.add(lScore);                                           // 점수 라벨 추가
+        center.add(lAcc);                                             // 정확도 라벨 추가
+        center.add(lTime);                                            // 시간 라벨 추가
+        add(center, BorderLayout.CENTER);                             // 중앙 배치
 
-    // 점수/정확도 등을 표시할 라벨들
-    private final JLabel titleLabel  = new JLabel("RESULT");
-    private final JLabel scoreLabel  = new JLabel("Score: -");
-    private final JLabel timeLabel   = new JLabel("Time Left: -s");
-    private final JLabel accLabel    = new JLabel("Accuracy: -");
-    private final JLabel detailLabel = new JLabel("Hit: -, Miss: -");
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.CENTER,  // 하단 버튼 영역
+                16, 16));                                             // 버튼 간격
+        bottom.setOpaque(false);                                      // 투명 처리
 
-    // 버튼: 다시하기, 메인으로
-    private final JButton retryButton = new JButton("RETRY");
-    private final JButton menuButton  = new JButton("MAIN MENU");
+        JButton btnSave = new JButton("이름 입력 후 랭킹 저장");          // 저장 버튼
+        JButton btnRanking = new JButton("랭킹 보러가기");              // 랭킹 이동 버튼
+        btnSave.setFont(Theme.body());                                // 버튼 폰트
+        btnRanking.setFont(Theme.body());                             // 버튼 폰트
+        btnRanking.setEnabled(false);                                 // 저장 전 비활성화
 
-    // 생성자: UI 컴포넌트 배치 + 라우터 주입
-    public ResultScreen(ScreenRouter router) {
-        this.router = router;                                                  // ★ 인스턴스 보관
+        bottom.add(btnSave);                                          // 하단에 버튼 추가
+        bottom.add(btnRanking);                                       // 하단에 버튼 추가
+        add(bottom, BorderLayout.SOUTH);                              // 하단 배치
 
-        setLayout(new BorderLayout());                                         // 레이아웃: 상/중앙/하 배치
-        setBackground(bg());                                                   // 배경색 적용
-
-        // 상단 타이틀
-        titleLabel.setFont(h1());                                              // 폰트: 큰 제목
-        titleLabel.setForeground(fg());                                        // 글자색: 밝은색
-        titleLabel.setHorizontalAlignment(SwingConstants.CENTER);              // 가운데 정렬
-        add(titleLabel, BorderLayout.NORTH);                                   // 상단 배치
-
-        // 중앙: 결과 수치들 수직 배치
-        JPanel center = new JPanel();                                          // 중앙 패널 생성
-        center.setOpaque(false);                                               // 배경 투명
-        center.setLayout(new GridLayout(4, 1, 0, 8));                          // 4행 1열, 세로 간격 8px
-        scoreLabel.setFont(h2());
-        timeLabel.setFont(h2());
-        accLabel.setFont(h2());
-        detailLabel.setFont(h3());
-        scoreLabel.setForeground(fg());                                        // 글자색 통일
-        timeLabel.setForeground(fg());
-        accLabel.setForeground(fg());
-        detailLabel.setForeground(fg());
-        center.add(scoreLabel);
-        center.add(timeLabel);
-        center.add(accLabel);
-        center.add(detailLabel);
-        add(center, BorderLayout.CENTER);                                      // 중앙 배치
-
-        // 하단: 버튼 두 개 가로 정렬
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.CENTER, 16, 16)); // 중앙정렬/여백
-        bottom.setOpaque(false);
-        retryButton.setFont(btnF());                                           // 버튼 폰트
-        menuButton.setFont(btnF());
-        bottom.add(retryButton);
-        bottom.add(menuButton);
-        add(bottom, BorderLayout.SOUTH);                                       // 하단 배치
-
-        // 버튼 리스너: 라우터 호출로 연결
-        retryButton.addActionListener(e -> {
-            // 마지막으로 완료한 스테이지가 3이면 랭킹 화면으로, 아니면 다음 게임으로
-            if (GamePanel.lastCompletedStage >= 3) {
-                router.show(ScreenId.RANKING);
-            } else {
-                router.show(ScreenId.GAME);
+        btnSave.addActionListener(e -> {                              // 저장 버튼 클릭 시
+            String name = JOptionPane.showInputDialog(                //  이름 입력 다이얼로그
+                    this,                                             //  부모
+                    "이름을 입력하세요(최대 16자):",                       //  메시지
+                    "랭킹 저장",                                       //  타이틀
+                    JOptionPane.PLAIN_MESSAGE);                       //  입력형
+            if (name == null) return;                                 //  취소 시 종료
+            name = name.trim();                                       //  공백 제거
+            if (name.isEmpty()) {                                     //  빈 문자열 방지
+                JOptionPane.showMessageDialog(this,                   //   경고
+                        "이름이 비어 있습니다.", "오류",
+                        JOptionPane.ERROR_MESSAGE);
+                return;                                               //   종료
             }
-        });
-        menuButton.addActionListener(e -> {
-            // 메인 메뉴로 이동
-            router.show(ScreenId.START);
-        });
-    }
+            if (name.length() > 16) name = name.substring(0,16);      //  길이 제한
 
-    // 화면이 보일 때: 컨텍스트에서 최신 결과를 읽어 라벨 반영
-    // ※ Showable이 마커 인터페이스일 수 있으므로 @Override는 의도적으로 제거
-    public void onShown() {
-        ResultData rd = ResultContext.get();                                   // GamePanel이 set 해둔 결과 읽기
-        if (rd == null) {                                                      // 비정상 진입 방어
-            scoreLabel.setText("Score: -");
-            timeLabel.setText("Time Left: -s");
-            accLabel.setText("Accuracy: -");
-            detailLabel.setText("Hit: -, Miss: -");
-            return;
-        }
+            RankingEntry entry = new RankingEntry(                     //  DTO 생성
+                    name,                                              //   이름
+                    score,                                             //   점수
+                    accuracy,                                          //   정확도
+                    timeLeft,                                          //   남은 시간
+                    System.currentTimeMillis()                         //   현재 시각
+            );                                                         //  DTO 끝
+            RankingCSV.append(entry);                                  //  CSV에 추가
+            System.out.println("[RankingCSV] saved: " + entry.name           //   (로그)
+                    + ", score=" + entry.score + ", acc=" + entry.accuracy);
 
-        // 정상 결과 반영
-        scoreLabel.setText("Score: " + rd.getScore());
-        timeLabel.setText("Time Left: " + rd.getTimeLeftSec() + "s");
-        int percent = (int) Math.round(rd.getAccuracy() * 100.0);              // 정확도 → %
-        accLabel.setText("Accuracy: " + percent + "%");
-        detailLabel.setText("Hit: " + rd.getCorrectCount()
-                + ", Miss: " + rd.getWrongCount());
-    }
+            JOptionPane.showMessageDialog(this,                               // 4) 저장 완료 안내
+                    "랭킹에 저장되었습니다!",
+                    "완료",
+                    JOptionPane.INFORMATION_MESSAGE);
 
-    // 화면이 숨겨질 때: 필요시 정리
-    public void onHidden() {
-        //결과 화면에서 벗어날 때 컨텍스트 초기화
-        ResultContext.clear();                                              // 재시작시 초기화가 필요하면 주석 해제
-    }
-}
+            btnRanking.setEnabled(true);                                      // 5) 버튼도 활성화(보조)
+            router.show(ScreenId.RANKING);                                //  이동 버튼 활성화
+        });                                                            // 저장 리스너 끝
+
+        btnRanking.addActionListener(e ->                              // 랭킹 이동 버튼
+                router.show(ScreenId.RANKING));                        //  랭킹 화면으로 전환
+    }                                                                  // 생성자 끝
+
+    public void setResult(int score, double accuracy, int timeLeft) {  // 외부에서 결과 주입
+        this.score = score;                                            // 점수 저장
+        this.accuracy = accuracy;                                      // 정확도 저장
+        this.timeLeft = timeLeft;                                      // 남은 시간 저장
+        lScore.setText("Score: " + score);                             // 라벨 반영
+        lAcc.setText(String.format("Accuracy: %.2f%%", accuracy));     // 라벨 반영
+        lTime.setText("Time Left: " + timeLeft + "s");                 // 라벨 반영
+    }                                                                  // setResult 끝
+}                                                                      // 클래스 끝

@@ -7,13 +7,14 @@ import com.balloon.ui.PlaceholderScreen;
 import com.balloon.ui.StartMenuUI;
 import com.balloon.ui.screens.GamePanel;
 import com.balloon.ui.theme.Theme;
-import com.balloon.ui.screens.ResultScreen;  // ★ 추가
+import com.balloon.ui.screens.ResultScreen;  // 결과 화면
+import com.balloon.ui.RankingScreenUI;      // 랭킹 화면(UI)
 
 import javax.swing.*;
 import java.awt.*;
 
 /**
- * GameLauncher
+ * Launcher
  * - 프로그램의 시작점(main 메서드 보유)
  * - JFrame(메인 창)을 만들고, ScreenRouter를 이용해 화면을 전환한다.
  */
@@ -42,15 +43,14 @@ public class Launcher {
             // -------------------- [3] 화면 등록 --------------------
             // register(화면ID, 컴포넌트)
             router.register(ScreenId.START,   new StartMenuUI(router));          // 시작 화면
-            router.register(ScreenId.GAME,  new GamePanel(router));     // ← GamePanel 등록
+            router.register(ScreenId.GAME,    new GamePanel(router));            // 게임 화면
             router.register(ScreenId.GUIDE,   new PlaceholderScreen("GUIDE"));   // 임시 가이드
-            router.register(ScreenId.RANKING, new PlaceholderScreen("RANKING"));// 임시 랭킹
-            // ★ 아래 줄을 추가
-            router.register(ScreenId.RESULT,  new ResultScreen(router));        // 결과 화면
+            router.register(ScreenId.RANKING, new RankingScreenUI(router));      // ★ 랭킹 화면(실제 UI)
+            router.register(ScreenId.RESULT,  new ResultScreen(router));         // 결과 화면
 
             // -------------------- [4] 라우터 루트패널을 JFrame에 붙이기 --------------------
             frame.setContentPane(router.getRoot());
-            router.show(ScreenId.START); //첫화면
+            router.show(ScreenId.START); // 첫 화면
 
             // -------------------- [5] 창 보이기 --------------------
             frame.setVisible(true);

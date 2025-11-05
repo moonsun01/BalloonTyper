@@ -56,4 +56,9 @@ public final class ScreenRouter {
             ((Showable) now).onShown();
         }
     }
+    /** 등록된 화면 인스턴스를 돌려준다 (ResultScreen에 값 주입용) */
+    public Component get(String id) {
+        return views.get(id); // id로 등록된 컴포넌트를 그대로 반환
+    }
+
 }

@@ -1,3 +1,5 @@
+// [TEMP-A] 점수 누적 임시 로직 (Team C ScoreCalculator 들어오면 대체)
+
 package com.balloon.ui.screens;
 
 import com.balloon.core.*;
@@ -11,7 +13,6 @@ import com.balloon.ui.theme.Theme;
 import com.balloon.core.ResultContext;
 import com.balloon.core.ResultData;
 import com.balloon.core.ScreenId;
-
 
 import javax.swing.*;
 import java.awt.*;
@@ -39,6 +40,9 @@ public class GamePanel extends JPanel implements Showable {
     private final JLabel overlayLabel = new JLabel(" ", SwingConstants.CENTER); // Success/Ready 오버레이 텍스트
     private final Timer overlayTimer = new Timer(1200, e -> overlayLabel.setVisible(false)); // 오버레이 표시 타이머(1.2s)
     private boolean stageClearedThisRound = false; // 한 스테이지 내 중복 성공 호출 방지
+
+    // 화면 이탈 여부(다른 화면으로 전환된 뒤엔 뒤늦게 발동하는 타이머 동작을 무시)
+    private volatile boolean navigatedAway = false;
 
     // 임시 단어 리스트(후에 words.csv로 교체 예정)
     private final List<String> words = List.of(
@@ -164,7 +168,6 @@ public class GamePanel extends JPanel implements Showable {
         showCurrentWord();
     }
 
-
     // Enter 처리: 입력 단어로 풍선 팝 시도 → 점수/토스트
     private void onEnter() {
         String typed = inputBuffer.getText().trim();
@@ -191,7 +194,6 @@ public class GamePanel extends JPanel implements Showable {
         inputBuffer.clear();
         refreshInputLabel();
     }
-
 
     private void showToast(String msg, Color color) {
         toastLabel.setForeground(color);
@@ -227,7 +229,6 @@ public class GamePanel extends JPanel implements Showable {
         showResult(); // ★ 점수/시간만으로 결과 전달(정답/오답 카운터 없이)
     }
 
-
     private void grabFocusSafely() {
         requestFocusInWindow();
         if (!tickTimer.isRunning()) tickTimer.start();
@@ -243,18 +244,21 @@ public class GamePanel extends JPanel implements Showable {
     /** 라우터가 카드 전환 직후 호출해 포커스/타이머를 보장 */
     @Override
     public void onShown() {
+        navigatedAway = false; // 화면에 다시 들어올 때 플래그 리셋
         grabFocusSafely();
     }
 
     // Showable에 onHidden()이 없을 수 있으므로 @Override 제거
     public void onHidden() {
+        navigatedAway = true;                    // ★ 떠났다고 표시(뒤늦은 타이머 가드)
+
         if (tickTimer.isRunning()) tickTimer.stop();
         if (caretTimer.isRunning()) caretTimer.stop();
         if (playField != null) playField.stop();
 
-        //resetGame(); // [D6-4] 화면이 숨겨질 때 상태 초기화
+        if (overlayTimer.isRunning()) overlayTimer.stop();  // ★ 오버레이 타이머도 정리
+        //resetGame(); // [D6-4] 화면이 숨겨질 때 상태 초기화 (필요 시 사용)
     }
-
 
     // ==========================================================
     // 내부 클래스 PlayField : 풍선 30개 일괄 생성 + 렌더/업데이트
@@ -305,7 +309,6 @@ public class GamePanel extends JPanel implements Showable {
             // Day5-Static: 풍선은 이동하지 않음. 업데이트/제거 없음.
             // (나중에 Day6에서 팝 이펙트만 잠깐 쓸 때 여기서 처리)
         }
-
 
         /** 입력 텍스트(대소문자 무시)와 같은 첫 풍선을 제거 */
         boolean popFirstByText(String text) {
@@ -358,6 +361,7 @@ public class GamePanel extends JPanel implements Showable {
             return "";
         }
     }
+
     /** 스테이지에 따라 시작 시간 설정: 1=90s, 2=80s, 3=70s */
     public void setStage(int stage) {
         int t;
@@ -372,6 +376,8 @@ public class GamePanel extends JPanel implements Showable {
 
     // [D6-3] 결과 컨텍스트 세팅 → Result 화면으로 전환(정답/오답 카운터 없이)
     private void showResult() {
+        if (navigatedAway) return;            // ★ 이미 다른 화면으로 이동했다면 무시
+
         // [1] 정확도/카운터는 사용하지 않으므로 0으로 채움
         double accuracy   = 0.0; // 정답률 미집계 → 0.0
         int correctCount  = 0;   // 정답 수 미집계 → 0
@@ -389,9 +395,19 @@ public class GamePanel extends JPanel implements Showable {
         // [3] 컨텍스트 저장
         ResultContext.set(data);
 
-        // [4] 화면 전환
+        // [4] ResultScreen 인스턴스를 꺼내어 라벨도 즉시 반영
         if (router != null) {
-            router.show(ScreenId.RESULT);      // 결과 화면으로 이동
+            try {
+                // ScreenRouter에 패치한 get(String) 사용
+                Component c = router.get(ScreenId.RESULT);
+                if (c instanceof ResultScreen rs) {
+                    rs.setResult(score, accuracy, Math.max(0, timeLeft)); // 라벨/상태 주입
+                }
+                router.show(ScreenId.RESULT); // 결과 화면으로 이동 (여기서 "이름 저장" 버튼을 눌러야 CSV 저장 가능)
+            } catch (Exception ex) {
+                System.err.println("[GamePanel] cannot inject result into ResultScreen: " + ex);
+                router.show(ScreenId.RESULT); // 그래도 RESULT로는 이동
+            }
         } else {
             System.err.println("[GamePanel] router is null → cannot navigate to RESULT");
         }
@@ -450,12 +466,12 @@ public class GamePanel extends JPanel implements Showable {
         lastCompletedStage = stage;
 
         if (stage >= 3) {
-            Timer t = new Timer(200, e -> showRanking());
+            Timer t = new Timer(200, e -> showResult()); // ★ RANKING 대신 RESULT
             t.setRepeats(false);
             t.start();
         } else {
             // 다음 스테이지 준비 → 시작 (각각 한번만)
-        Timer t1 = new Timer(1250, e -> {
+            Timer t1 = new Timer(1250, e -> {
                 showOverlay("Stage " + (stage + 1) + " Ready...", new Color(255, 230, 140));
                 Timer t2 = new Timer(1250, ev -> startNextStage());
                 t2.setRepeats(false);
@@ -471,11 +487,13 @@ public class GamePanel extends JPanel implements Showable {
         // 실패 오버레이(짧게)
         showOverlay("✖ FAILED!  (Stage " + stage + ")", new Color(230, 90, 90));
         // 바로 랭킹으로
-        new Timer(500, e -> showRanking()).start();
+        new Timer(500, e -> showResult()).start();
     }
 
     // 다음 스테이지로 넘어가 실제 시작
     private void startNextStage() {
+        if (navigatedAway) return;   // ★ 이미 다른 화면으로 갔다면 아무 것도 하지 않음
+
         stageClearedThisRound = false;
 
         if (stage >= 3) { // 방어: 혹시라도 3 이상이면 증가 금지
@@ -511,26 +529,6 @@ public class GamePanel extends JPanel implements Showable {
 
     // 누적 점수로 Ranking 화면으로 이동
     private void showRanking() {
-        // ResultData로 기본 필드 채워서 넘김(정확도/정답/오답은 0 유지)
-        double accuracy = 0.0;
-        int correct = 0;
-        int wrong = 0;
-
-        ResultData data = new ResultData(
-                score,                      // 누적 점수(보너스 포함)
-                Math.max(0, timeLeft),      // 현재 남은 시간(정보용)
-                accuracy,
-                correct,
-                wrong
-        );
-
-        ResultContext.set(data);
-        if (router != null) {
-            router.show(ScreenId.RANKING);
-        } else {
-            System.err.println("[GamePanel] router is null → cannot navigate to RANKING");
-        }
+        showResult(); //Result를 먼저 띄워서 이름 입력/csv 저장 후, 사용자가 Ranking으로 이동
     }
-
-
 }
