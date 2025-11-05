@@ -31,7 +31,7 @@ public class GameState {
 
     // 점수(누적)
     public void addRemainingTimeAsScore() {
-        totalScore += timeLeft;
+        totalScore += timeLeft*10;
     }
 
     public int getTotalScore() {
