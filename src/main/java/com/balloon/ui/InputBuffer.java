@@ -1,3 +1,7 @@
+// [TEMP-A] Team A 임시 구현: 팀 B/C 코드 머지되면 교체 예정
+// 사용 메서드: appendChar, backspace, clear, getText
+
+
 package com.balloon.ui;
 
 /** 키 입력을 누적/편집하는 간단한 버퍼 */
