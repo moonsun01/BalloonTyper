@@ -1,4 +1,5 @@
 package com.balloon.game;
 
-public class WordProvider {
+public interface WordProvider {
+    String nextWord();
 }

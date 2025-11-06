@@ -1,4 +1,9 @@
 package com.balloon.game;
+/*
+레벨, 생명, 남은시간, 점수 보관/갱신
+레벨 전환, 시간초기화 수행
+게임종료 판정
+ */
 
 public class GameState {
     private int level;
@@ -6,62 +11,43 @@ public class GameState {
     private int timeLeft;
     private int totalScore;
 
-    // 레벨 시작시간? ()
-    private int LV1_TIME = 90;
-    private int LV2_TIME = 80;
-    private int LV3_TIME = 60;
+    private final LevelConfig config;   //레벨별 초기 시간
 
-    public GameState(int life) {
-        this.level = 1;
-        this.totalScore = 0;
-        this.life = life;
-        this.timeLeft = LV1_TIME;
+    public GameState(LevelConfig config) {
+        this.level = 1;                                     // 시작레벨 1
+        this.totalScore = 0;                                // 시작 점수 0점
+        this.life = 3;                                      // 시작 생명 3개
+        this.config = config;
+        this.timeLeft = config.getInitialTime(level);
     }
 
-    // 레벨
-    public int getLevel() {
-        return level;
-    }
+    //레벨
+    public int getLevel() {return level;}
 
     public void nextLevel() {
         level++;
-        if (level == 2) timeLeft = LV2_TIME;
-        else if (level == 3) timeLeft = LV3_TIME;
+        timeLeft = config.getInitialTime(level);
     }
 
-    // 점수(누적)
+    //점수 (남은시간->점수 누적)
     public void addRemainingTimeAsScore() {
-        totalScore += timeLeft;
+        totalScore += Math.max(0, timeLeft);            // 0이랑 timeleft중 큰 값 반환 후 더하기
     }
+    public int getTotalScore() { return totalScore; }
 
-    public int getTotalScore() {
-        return totalScore;
-    }
+    //생명
+    public void loseLife() { if (life > 0) life--; }    // 오답 -> 생명-1
+    public int getLife() { return life; }
 
-    // 생명
-    public void loseLife() {
-        if (life > 0) life--;
-    }
+    //시간
+    public void decreaseTime() { if (timeLeft > 0) timeLeft--; }    // 1초씩 감소
+    public int getTimeLeft() { return timeLeft; }                   // 남은시간
 
-    public int getLife() {
-        return life;
-    }
-
-    // 시간
-    public void decreaseTime() {
-        if (timeLeft > 0) timeLeft--;
-    }
-
-    public int getTimeLeft() {
-        return timeLeft;
-    }
-
-    // 게임 종료
+    //게임종료
     public boolean isGameOver() {
         boolean timeOut = (timeLeft <= 0);
         boolean noLife = (life <= 0);
         boolean clearedAll = (level > 3);
         return timeOut || noLife || clearedAll;
     }
-
 }
