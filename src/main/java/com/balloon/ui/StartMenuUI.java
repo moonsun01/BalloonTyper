@@ -2,94 +2,129 @@ package com.balloon.ui;
 
 import com.balloon.core.ScreenId;
 import com.balloon.core.ScreenRouter;
+import com.balloon.core.Session;
 
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.border.LineBorder;
 import java.awt.*;
 
+/**
+ * 메인(Start) 화면
+ * - 배경이미지: /images/Main화면.png (1280x720 기준)
+ * - 닉네임 입력 + START/GUIDE/RANKING 버튼 배치
+ */
 public class StartMenuUI extends JPanel {
 
-    private final ScreenRouter router;
+    // [반응형] 기준 해상도
+    private static final int BASE_W = 1280;
+    private static final int BASE_H = 720;
+
+    // [반응형] 우리가 조종할 컴포넌트들을 필드로
+    private JButton startBtn, guideBtn, rankBtn;
+    private JTextField nicknameField;
+
+    // StartMenuUI 클래스 안(필드 영역)
+    private static final boolean DEBUG_HOTSPOT = false; // ☆ 위치 맞춘 뒤 false로!
+
+    private final Image backgroundImage;
+
+
 
     public StartMenuUI(ScreenRouter router) {
-        this.router = router;                    // ← 대입 누락 보완
-        setLayout(new BorderLayout());
-        setBackground(new Color(18, 18, 18));
+        // 배경 이미지 로드
+        backgroundImage = new ImageIcon(getClass().getResource("/images/Main화면.png")).getImage();
 
-        // ---- 상단 타이틀 ----
-        JLabel title = new JLabel("BALLOON TYPER", SwingConstants.CENTER);
-        title.setForeground(new Color(240, 240, 240));
-        title.setFont(new Font("SansSerif", Font.BOLD, 36));
-        title.setBorder(BorderFactory.createEmptyBorder(40, 0, 20, 0));
-        add(title, BorderLayout.NORTH);
+        setLayout(null);
+        setPreferredSize(new Dimension(1280, 720));
 
-        // ---- 중앙 버튼들 ----
-        JPanel center = new JPanel(new GridBagLayout());
-        center.setOpaque(false);
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.gridx = 0; gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.CENTER;
-        gbc.insets = new Insets(10, 0, 10, 0);
-        gbc.weightx = 1.0; gbc.weighty = 1.0;
+        // 닉네임 입력창 (이미지 상 입력칸 위치에 맞춤)
+        JTextField nicknameField = new JTextField();
+        nicknameField.setHorizontalAlignment(JTextField.CENTER);
+        nicknameField.setFont(new Font("Dialog", Font.PLAIN, 18));
+        // x, y, w, h (이미지 기준 미세조정 가능)
+        nicknameField.setBounds(465, 420, 330, 46);
+        nicknameField.setBackground(new Color(255, 255, 255, 220));
+        nicknameField.setBorder(BorderFactory.createLineBorder(Color.BLACK, 3));
+        add(nicknameField);
 
-        JButton startBtn   = makePrimaryButton("Start");
-        JButton guideBtn   = makeSecondaryButton("Guide");
-        JButton rankingBtn = makeSecondaryButton("Ranking");
-        JButton exitBtn    = makeDangerButton("Exit");
+// START (노란 칩 위)
+        JButton startBtn = new JButton();                 // ← 텍스트 제거
+        startBtn.setActionCommand("START");               // (선택)
+        startBtn.setBounds(400, 500, 210, 64);            // 네가 쓰던 좌표면 OK
+        styleTransparentHotspot(startBtn);
+        add(startBtn);
 
-        // 화면 전환
-        startBtn.addActionListener(e -> router.show(ScreenId.GAME));
+// GUIDE (연두 칩 위)
+        JButton guideBtn = new JButton();
+        guideBtn.setActionCommand("GUIDE");
+        guideBtn.setBounds(650, 500, 210, 64);
+        styleTransparentHotspot(guideBtn);
+        add(guideBtn);
+
+// RANK (오른쪽 아래 구름)
+        JButton rankBtn = new JButton();
+        rankBtn.setActionCommand("RANKING");
+        rankBtn.setBounds(870, 580, 170, 48);
+        styleTransparentHotspot(rankBtn);
+        add(rankBtn);
+
+
+        // 라우팅 연결
+        startBtn.addActionListener(e -> {
+            Session.setNickname(nicknameField.getText());
+            router.show(ScreenId.MODE_SELECT);
+
+
+        });
         guideBtn.addActionListener(e -> router.show(ScreenId.GUIDE));
-        rankingBtn.addActionListener(e -> router.show(ScreenId.RANKING));   // ← RANKING 말고 RANK
-        exitBtn.addActionListener(e -> System.exit(0));
-
-        JPanel col = new JPanel(new GridLayout(0, 1, 0, 12));
-        col.setOpaque(false);
-        col.add(startBtn); col.add(guideBtn); col.add(rankingBtn); col.add(exitBtn);
-
-        center.add(col, gbc);
-        add(center, BorderLayout.CENTER);
-
-        // ---- 하단 푸터 ----
-        JLabel footer = new JLabel("© 2025 Balloon Typer Team", SwingConstants.CENTER);
-        footer.setForeground(new Color(150, 150, 150));
-        footer.setBorder(BorderFactory.createEmptyBorder(20, 0, 30, 0));
-        add(footer, BorderLayout.SOUTH);
-
-        // ---- 단축키 ----
-        registerKeyboardAction(e -> startBtn.doClick(),
-                KeyStroke.getKeyStroke("ENTER"), JComponent.WHEN_IN_FOCUSED_WINDOW);
-        registerKeyboardAction(e -> guideBtn.doClick(),
-                KeyStroke.getKeyStroke('G'), JComponent.WHEN_IN_FOCUSED_WINDOW);
-        registerKeyboardAction(e -> rankingBtn.doClick(),
-                KeyStroke.getKeyStroke('R'), JComponent.WHEN_IN_FOCUSED_WINDOW);
-        registerKeyboardAction(e -> exitBtn.doClick(),
-                KeyStroke.getKeyStroke("ESCAPE"), JComponent.WHEN_IN_FOCUSED_WINDOW);
+        rankBtn.addActionListener(e -> router.show(ScreenId.RANKING));
     }
 
-    // ---- 버튼 스타일 헬퍼들 ----
-    private JButton baseButton(String text) {
-        JButton b = new JButton(text);
-        b.setFont(new Font("SansSerif", Font.BOLD, 18));
-        b.setBorder(BorderFactory.createEmptyBorder(14, 18, 14, 18));
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        // 패널 크기에 맞춰 배경을 채움
+        g.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), this);
+    }
+
+
+    private void styleTransparentHotspot(JButton b) {
+        b.setContentAreaFilled(false);
+        b.setBorderPainted(false);
         b.setFocusPainted(false);
-        return b;
+        b.setOpaque(false);
+        b.setForeground(new Color(0,0,0,0));
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        if (DEBUG_HOTSPOT) {
+            // ★ 디버그 모드: 반투명 배경 + 테두리로 위치 보이게
+            b.setContentAreaFilled(true);
+            b.setOpaque(true);
+            b.setBackground(new Color(255, 0, 255, 60));  // 연보라 반투명
+            b.setBorder(new LineBorder(new Color(120, 0, 120), 2));
+            b.setForeground(Color.BLACK); // 글자 보이게(원하면 지워도 됨)
+            b.setText(b.getActionCommand()); // 버튼 이름 보여주기
+        }
     }
-    private JButton makePrimaryButton(String text) {
-        JButton b = baseButton(text);
-        b.setBackground(new Color(83, 109, 254));
-        b.setForeground(Color.WHITE);
-        return b;
+
+
+    /** 버튼을 완전 투명하게 만들고, 호버/포커스 UX를 가볍게 주는 공통 스타일
+    private void styleTransparentButton(JButton b) {
+        b.setContentAreaFilled(false);   // 배경 채우기 끔
+        b.setBorderPainted(false);       // 테두리 끔
+        b.setFocusPainted(false);        // 포커스 테두리 끔
+        b.setOpaque(false);              // 불투명 끔
+        b.setForeground(Color.BLACK);    // 텍스트만 보이게
+
+        // 마우스 올리면 살짝 강조
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        b.addChangeListener(e -> {
+            boolean hover = b.getModel().isRollover();
+            b.setForeground(hover ? new Color(20, 20, 20) : Color.BLACK);
+        });
+
+        // 키보드 접근성(스페이스/엔터) 기본 동작 유지됨
     }
-    private JButton makeSecondaryButton(String text) {
-        JButton b = baseButton(text);
-        b.setBackground(new Color(48, 48, 48));
-        b.setForeground(new Color(230, 230, 230));
-        return b;
-    }
-    private JButton makeDangerButton(String text) {
-        JButton b = baseButton(text);
-        b.setBackground(new Color(229, 57, 53));
-        b.setForeground(Color.WHITE);
-        return b;
-    }
+*/
 }

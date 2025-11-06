@@ -13,6 +13,7 @@ import com.balloon.ui.theme.Theme;
 import com.balloon.core.ResultContext;
 import com.balloon.core.ResultData;
 import com.balloon.core.ScreenId;
+import com.balloon.core.Session;
 
 import javax.swing.*;
 import java.awt.*;
@@ -61,12 +62,19 @@ public class GamePanel extends JPanel implements Showable {
     private final JLabel inputLabel = new JLabel("▶ ", SwingConstants.LEFT);   // 입력 표시
     private final JLabel toastLabel = new JLabel(" ", SwingConstants.CENTER);  // 성공/실패 토스트
 
+    // ★ NEW: GameContext HUD 라벨(플레이어/모드)
+    private final JLabel playerLabel = new JLabel("Player: -"); // ★ NEW
+    private final JLabel modeLabel   = new JLabel("Mode: -");   // ★ NEW
+
     // 중앙 플레이 영역(풍선 캔버스)
     private final PlayField playField;
 
     private boolean caretOn = true;
     private final Timer caretTimer;   // 입력 캐럿 깜빡임
     private final Timer tickTimer;    // 1초 틱 타이머
+
+    // ★ NEW: 전역 컨텍스트 참조
+    private final GameContext ctx = GameContext.getInstance(); // ★ NEW
 
     public GamePanel(ScreenRouter router) {
         this.router = router;                          // ★ 주입된 라우터 저장
@@ -81,6 +89,14 @@ public class GamePanel extends JPanel implements Showable {
         scoreLabel.setForeground(Theme.FG_TEXT);
         hud.add(timeLabel);
         hud.add(scoreLabel);
+
+        // ★ NEW: HUD에 Player/Mode 표시 추가
+        playerLabel.setForeground(Theme.FG_TEXT);      // ★ NEW
+        modeLabel.setForeground(Theme.FG_TEXT);        // ★ NEW
+        hud.add(new JLabel(" | "));                    // ★ NEW: 구분 표시
+        hud.add(playerLabel);                          // ★ NEW
+        hud.add(modeLabel);                            // ★ NEW
+
         add(hud, BorderLayout.NORTH);
 
         // 중앙 플레이 영역
@@ -164,8 +180,36 @@ public class GamePanel extends JPanel implements Showable {
             }
         });
 
+        // ★ NEW: 진입 시 컨텍스트 HUD 초기 동기화
+        updateContextHud(); // ★ NEW
+
         // 첫 단어 표시
         showCurrentWord();
+    }
+
+    // (+) Session 닉네임을 가장 우선으로 표시하고, 없으면 GameContext로 폴백
+    private void updateContextHud() {
+        // 1) Session에서 닉네임 우선
+        String name = Session.getNickname();
+
+        // 2) Session이 비어 있으면 GameContext 값 사용(폴백)
+        if (name == null || name.isBlank()) {
+            try {
+                String fromCtx = (ctx != null) ? ctx.getPlayerName() : null;
+                if (fromCtx != null && !fromCtx.isBlank()) name = fromCtx;
+            } catch (Exception ignore) {}
+        }
+
+        if (name == null || name.isBlank()) name = "-";
+        playerLabel.setText("Player: " + name);
+
+        // 모드 표시(없으면 "-")
+        String mode = "-";
+        try {
+            String m = (ctx != null) ? String.valueOf(ctx.getMode()) : null;
+            if (m != null && !m.equalsIgnoreCase("null") && !m.isBlank()) mode = m;
+        } catch (Exception ignore) {}
+        modeLabel.setText("Mode: " + mode);
     }
 
     // Enter 처리: 입력 단어로 풍선 팝 시도 → 점수/토스트
@@ -246,6 +290,7 @@ public class GamePanel extends JPanel implements Showable {
     public void onShown() {
         navigatedAway = false; // 화면에 다시 들어올 때 플래그 리셋
         grabFocusSafely();
+        updateContextHud();    // ★ NEW: 재진입 시 최신 이름/모드 반영
     }
 
     // Showable에 onHidden()이 없을 수 있으므로 @Override 제거
