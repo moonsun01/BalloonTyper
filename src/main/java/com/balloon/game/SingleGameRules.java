@@ -3,6 +3,7 @@ package com.balloon.game;
 1인용 규칙
  */
 
+import com.balloon.game.model.Balloon;
 import java.util.List;
 
 public class SingleGameRules implements GameRules {

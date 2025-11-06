@@ -1,58 +1,75 @@
 package com.balloon.game.model;
 
 import java.awt.Color;
+import java.util.Objects;
 
 /**
- * Balloon: 화면에 떠다니는 '풍선' 데이터(엔티티).
- * - 렌더러는 이 객체가 가진 상태만 읽어서 그려준다(단방향).
- * - 게임 로직(이동/소멸 판정 등)은 update() 등의 메서드로 수행한다.
- *
- *  핵심 개념
- *  1) 데이터(단어/좌표/반지름/종류)를 보관
- *  2) 매 프레임 update()로 y좌표를 살짝 올려 '떠오르는' 느낌
- *  3) 화면 밖으로 나갔는지 판정(isOffscreen)
- *  4) 색상/표시용 정보(getFillColor 등)
+ * 도메인 엔티티: Balloon (로직 + 렌더링 공용)
+ * - 단어/좌표/반지름/종류/활성(active) 상태
+ * - pop(), matchesExact(), tryPop() 등 로직 메서드 포함
+ * - getFillColor(), update() 등 렌더링 보조 메서드 포함
  */
 public class Balloon {
+    private static int NEXT_ID = 1;
 
-    /** 풍선 종류: 게임 규칙과 연결 (RED=time, BLUE=balloon, GREEN=방해) */
+    private final int id;
+    private String word;
+
+    // 위치/표시
+    private float x;
+    private float y;
+    private float radius = 24f;
+    private float vy = -0.5f; // 위로 살짝 상승(렌더링 연출용)
     public enum Kind { RED, BLUE, GREEN }
+    private Kind kind = Kind.RED;
 
-    // ====== 표시/판정에 필요한 상태값 ======
-    private String word;   // 풍선 안에 적힐 단어
-    private float x;       // 중심 X 좌표 (픽셀)
-    private float y;       // 중심 Y 좌표 (픽셀)
-    private float radius;  // 반지름 (픽셀)
-    private Kind kind;     // 풍선 종류(색/아이템 의미)
+    // 로직 상태
+    private boolean active = true;
 
-    // ====== 이동 관련 ======
-    private float vy = -0.6f; // 기본 위로 이동 속도(음수: 위로 씩 올라감)
-
-    /**
-     * 생성자: 필수 상태를 모두 받아 초기화한다.
-     */
-    public Balloon(String word, float x, float y, float radius, Kind kind) {
+    public Balloon(String word, float x, float y, Kind kind) {
+        this.id = NEXT_ID++;
         this.word = word;
         this.x = x;
         this.y = y;
-        this.radius = radius;
-        this.kind = kind;
+        if (kind != null) this.kind = kind;
     }
 
-    // ====== 게임 루프에서 매 프레임 호출되어 '위로 이동'시키는 메서드 ======
+    // ===== 로직 메서드 =====
+    public boolean isActive() { return active; }
+
+    /** 강제 팝 */
+    public void pop() { this.active = false; }
+
+    /** 입력과 정확 일치 (대소문자 무시) */
+    public boolean matchesExact(String input) {
+        if (!active) return false;
+        if (input == null) return false;
+        String s = input.trim();
+        if (s.isEmpty() || word == null) return false;
+        return word.equalsIgnoreCase(s);
+    }
+
+    /** 정확 일치 시 팝 처리 */
+    public boolean tryPop(String input) {
+        if (!isActive()) return false;
+        if (matchesExact(input)) {
+            pop();
+            return true;
+        }
+        return false;
+    }
+
+    // ===== 렌더링 보조 =====
     public void update() {
+        // 필요시 상승 연출 (UI 연동 상황에 따라 끄거나 수정)
         y += vy;
     }
 
-    // ====== 화면 밖으로 나갔는지(위로 완전히 사라졌는지) 판정 ======
-    // - 패널 높이를 알고 있어야 하므로, 호출하는 쪽에서 height를 넘겨준다.
-    public boolean isOffscreenTop(int panelHeight) {
-        // 풍선의 가장 아래가 화면 맨 위보다 위(음수)로 올라갔다면 화면 밖
-        return (y + radius) < 0;
+    public boolean isOffscreen(int width, int height) {
+        // 화면 상단을 벗어났는지 체크(필요 시 조건 조정)
+        return (y + radius) < 0 || (y - radius) > height || (x + radius) < 0 || (x - radius) > width;
     }
 
-    // ====== 렌더링용 색상 반환 ======
-    //  - 지금은 하드코딩 값을 반환(Theme와 동기화는 렌더러에서 처리)
     public Color getFillColor() {
         return switch (kind) {
             case RED   -> new Color(234, 84, 85);
@@ -61,20 +78,44 @@ public class Balloon {
         };
     }
 
-    // ====== 게터/세터 ======
+    // ===== 게터/세터 =====
+    public int getId() { return id; }
     public String getWord() { return word; }
     public float getX() { return x; }
     public float getY() { return y; }
     public float getRadius() { return radius; }
     public Kind getKind() { return kind; }
+    public float getVy() { return vy; }
 
     public void setWord(String word) { this.word = word; }
     public void setX(float x) { this.x = x; }
     public void setY(float y) { this.y = y; }
     public void setRadius(float radius) { this.radius = radius; }
     public void setKind(Kind kind) { this.kind = kind; }
-
-    // 속도 조절이 필요할 때를 대비한 게터/세터
-    public float getVy() { return vy; }
     public void setVy(float vy) { this.vy = vy; }
+
+    @Override
+    public String toString() {
+        return "Balloon{" +
+                "id=" + id +
+                ", word='" + word + '\'' +
+                ", x=" + x +
+                ", y=" + y +
+                ", active=" + active +
+                ", kind=" + kind +
+                '}';
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Balloon)) return false;
+        Balloon balloon = (Balloon) o;
+        return id == balloon.id;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
 }

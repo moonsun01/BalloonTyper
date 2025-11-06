@@ -1,5 +1,6 @@
 package com.balloon.game;
 
+import com.balloon.game.model.Balloon;
 import java.util.List;
 
 public interface GameRules {
