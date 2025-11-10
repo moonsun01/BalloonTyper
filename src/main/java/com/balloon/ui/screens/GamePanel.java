@@ -1,49 +1,60 @@
 // [TEMP-A] 점수 누적 임시 로직 (Team C ScoreCalculator 들어오면 대체)
-
 package com.balloon.ui.screens;
 
 import com.balloon.core.*;
-import com.balloon.ui.InputBuffer;
+import com.balloon.game.model.BalloonSprite;
+import com.balloon.ui.assets.BalloonSkins;
+import com.balloon.ui.assets.BalloonSkins.Skin;
+import com.balloon.ui.assets.ImageAssets;
+import com.balloon.ui.render.BalloonSpriteRenderer;
+// [ADD] 아이템 카테고리 enum
+import com.balloon.ui.skin.SecretItemSkin.ItemCategory;
 
-import com.balloon.game.model.Balloon;
-import com.balloon.game.model.Balloon.Kind;
-import com.balloon.game.render.BalloonRenderer;
-import com.balloon.ui.theme.Theme;
-
-import com.balloon.core.ResultContext;
-import com.balloon.core.ResultData;
-import com.balloon.core.ScreenId;
-import com.balloon.core.Session;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
-import java.util.List;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
 /**
  * GamePanel :
- * 중앙 플레이 영역은 내부 클래스 PlayField가 풍선 렌더링/업데이트 담당.
+ * - 배경: 레벨별 PNG
+ * - 집: PNG (하단 중앙). 집 지붕의 한 점이 줄(실) 앵커
+ * - 풍선: PNG(5색) + 줄(실)은 코드로 그림
+ * - 좌상단 HUD: life 하트(현재 라이프 수만큼), 타이머
+ * - 기존 점수/시간/토스트/스테이지 플로우 유지
  */
 public class GamePanel extends JPanel implements Showable {
 
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        final Graphics2D g2 = (Graphics2D) g.create();
+
+        //배경 png
+        if (bgImg != null) {
+            g.drawImage(bgImg, 0, 0, getWidth(), getHeight(), null); // 부모 패널 전체에 배경 적용
+        }
+    }
+
     // --- 모델 상태 ---
-    private final InputBuffer inputBuffer = new InputBuffer();
     private int timeLeft = 60;        // 남은 시간(초)
     private int score = 0;            // 점수
     private int wordIndex = 0;        // 현재 타겟 단어 인덱스(라벨용)
-    private int stage = 1; //현재 스테이지 (1 -> 2 -> 3)
+    private int stage = 1;            // 현재 스테이지 (1 -> 2 -> 3)
     public static int lastCompletedStage = 1;
     private final ScreenRouter router;
 
-    private final JLabel overlayLabel = new JLabel(" ", SwingConstants.CENTER); // Success/Ready 오버레이 텍스트
-    private final Timer overlayTimer = new Timer(1200, e -> overlayLabel.setVisible(false)); // 오버레이 표시 타이머(1.2s)
-    private boolean stageClearedThisRound = false; // 한 스테이지 내 중복 성공 호출 방지
+    private int lives = 3; //life(하트) - single mode : 오타 1회당 1감소, 0이면 게임 오버
 
-    // 화면 이탈 여부(다른 화면으로 전환된 뒤엔 뒤늦게 발동하는 타이머 동작을 무시)
+    private final JLabel overlayLabel = new JLabel(" ", SwingConstants.CENTER);
+    private final Timer overlayTimer = new Timer(1200, e -> overlayLabel.setVisible(false));
+    private boolean stageClearedThisRound = false;
     private volatile boolean navigatedAway = false;
+    private final JTextField inputField = new JTextField(); //한글입력 가능
 
     // 임시 단어 리스트(후에 words.csv로 교체 예정)
     private final List<String> words = List.of(
@@ -55,155 +66,167 @@ public class GamePanel extends JPanel implements Showable {
             "water","xenon","youth","zebra","type"
     );
 
-    // --- UI 컴포넌트 ---
+    // --- 라벨 HUD(상단 바는 기존 유지) ---
     private final JLabel timeLabel = new JLabel("Time: 60");
     private final JLabel scoreLabel = new JLabel("Score: 0");
-    private final JLabel wordLabel  = new JLabel("", SwingConstants.CENTER);   // 가이드용 타겟 단어
-    private final JLabel inputLabel = new JLabel("▶ ", SwingConstants.LEFT);   // 입력 표시
-    private final JLabel toastLabel = new JLabel(" ", SwingConstants.CENTER);  // 성공/실패 토스트
-
-    // ★ NEW: GameContext HUD 라벨(플레이어/모드)
-    private final JLabel playerLabel = new JLabel("Player: -"); // ★ NEW
-    private final JLabel modeLabel   = new JLabel("Mode: -");   // ★ NEW
+    private final JLabel wordLabel  = new JLabel("", SwingConstants.CENTER);
+    private final JLabel toastLabel = new JLabel(" ", SwingConstants.CENTER);
+    private final JLabel playerLabel = new JLabel("Player: -");
+    private final JLabel modeLabel   = new JLabel("Mode: -");
 
     // 중앙 플레이 영역(풍선 캔버스)
     private final PlayField playField;
 
     private boolean caretOn = true;
-    private final Timer caretTimer;   // 입력 캐럿 깜빡임
-    private final Timer tickTimer;    // 1초 틱 타이머
+    private final Timer tickTimer;
 
-    // ★ NEW: 전역 컨텍스트 참조
-    private final GameContext ctx = GameContext.getInstance(); // ★ NEW
+    // 전역 컨텍스트
+    private final GameContext ctx = GameContext.getInstance();
+
+    /** ★ 풍선을 맞췄을 때 적용할 효과 정보 */
+    private static final class PopResult {
+        final ItemCategory category;  // TIME, BALLOON, NORMAL 등
+        final int itemValue;          // TIME: ±5, BALLOON: ±1 등
+        PopResult(ItemCategory category, int itemValue) {
+            this.category = category;
+            this.itemValue = itemValue;
+        }
+    }
+
+    // ▼ [NEW] 이미지 자산 (배경/집/하트)
+    private BufferedImage bgImg;
+    private BufferedImage houseImg;
+    private BufferedImage heartImg;
 
     public GamePanel(ScreenRouter router) {
-        this.router = router;                          // ★ 주입된 라우터 저장
+        this.router = router;
 
+        // [레이아웃/배경]
         setLayout(new BorderLayout());
-        setBackground(Theme.BG_DARK);
 
-        // 상단 HUD
+        setOpaque(false);
+
+        // HUD 바는 투명 (또는 아주 살짝 어두운 고정색을 쓰고 싶으면 setBackground(new Color(0,0,0,120)))
         JPanel hud = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
-        hud.setBackground(Theme.BG_PANEL);
-        timeLabel.setForeground(Theme.FG_TEXT);
-        scoreLabel.setForeground(Theme.FG_TEXT);
+        hud.setOpaque(false);
+
+// 글자색은 그냥 흰색으로
+        timeLabel.setForeground(Color.WHITE);
+        scoreLabel.setForeground(Color.WHITE);
+        playerLabel.setForeground(Color.WHITE);
+        modeLabel.setForeground(Color.WHITE);
+
         hud.add(timeLabel);
         hud.add(scoreLabel);
 
-        // ★ NEW: HUD에 Player/Mode 표시 추가
-        playerLabel.setForeground(Theme.FG_TEXT);      // ★ NEW
-        modeLabel.setForeground(Theme.FG_TEXT);        // ★ NEW
-        hud.add(new JLabel(" | "));                    // ★ NEW: 구분 표시
-        hud.add(playerLabel);                          // ★ NEW
-        hud.add(modeLabel);                            // ★ NEW
-
+        hud.add(new JLabel(" | "));
+        hud.add(playerLabel);
+        hud.add(modeLabel);
         add(hud, BorderLayout.NORTH);
 
-        // 중앙 플레이 영역
+        // [중앙 플레이]
         playField = new PlayField();
         playField.setLayout(new BorderLayout());
         add(playField, BorderLayout.CENTER);
 
-        // 중앙 단어 라벨(가이드)
+        // [중앙 단어 라벨(가이드)]
         wordLabel.setFont(wordLabel.getFont().deriveFont(Font.BOLD, 36f));
         wordLabel.setForeground(Color.WHITE);
         playField.add(wordLabel, BorderLayout.CENTER);
         wordLabel.setVisible(false); // Day5: 중앙 가이드 비표시
 
-        // 토스트 라벨
+        // [토스트 라벨]
         toastLabel.setForeground(new Color(80, 120, 80));
         toastLabel.setFont(toastLabel.getFont().deriveFont(Font.PLAIN, 16f));
         playField.add(toastLabel, BorderLayout.SOUTH);
 
-        // 하단 입력바
+        // [하단 입력바]
         JPanel inputBar = new JPanel(new BorderLayout());
-        inputBar.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
-        inputBar.setBackground(Theme.BG_PANEL);
+        inputBar.setBorder(BorderFactory.createEmptyBorder(8, 24, 16, 24));
+        inputBar.setOpaque(false);
 
-        inputLabel.setFont(inputLabel.getFont().deriveFont(Font.BOLD, 16f));
-        inputLabel.setForeground(Theme.FG_TEXT);
-        inputBar.add(inputLabel, BorderLayout.CENTER);
+        // ★ 입력칸 길이 축소
+        inputField.setFont(inputField.getFont().deriveFont(Font.BOLD, 18f));
+        inputField.setColumns(18);   //더 짧게 하고싶으면 이거 낮추기        // 24 → 18
+        inputField.setBackground(Color.WHITE);
+        inputField.setForeground(Color.BLACK);
+        inputField.setCaretColor(Color.BLACK);
+        inputField.setBorder(BorderFactory.createLineBorder(Color.BLACK, 3));
 
+// 가변 너비가 너무 길어지지 않게 선호 크기 고정(최대 560px)
+        inputField.setPreferredSize(new Dimension(560, 34));          // ★ 추가
+        inputBar.add(inputField, BorderLayout.CENTER);
+
+
+// 힌트 라벨은 우측에 그대로 둬도 되고 제거해도 됩니다.
         JLabel hint = new JLabel("타이핑 · Enter=확인 · Backspace=삭제 · Esc=지우기");
-        hint.setForeground(new Color(160, 170, 190));
+        hint.setForeground(new Color(200, 210, 230));
         inputBar.add(hint, BorderLayout.EAST);
+
         add(inputBar, BorderLayout.SOUTH);
 
-        // ★ 오버레이 라벨 (Success/Ready 공용)
+        // [오버레이 라벨]
         overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 42f));
         overlayLabel.setForeground(new Color(255, 255, 160));
         overlayLabel.setVisible(false);
         playField.add(overlayLabel, BorderLayout.NORTH);
         overlayTimer.setRepeats(false);
 
-        // 키 입력
-        addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                final int code = e.getKeyCode();
-                if (code == KeyEvent.VK_BACK_SPACE) {
-                    inputBuffer.backspace();
-                    refreshInputLabel();
-                } else if (code == KeyEvent.VK_ESCAPE) {
-                    inputBuffer.clear();
-                    refreshInputLabel();
-                } else if (code == KeyEvent.VK_ENTER) {
-                    onEnter();
-                }
-            }
-
-            @Override
-            public void keyTyped(KeyEvent e) {
-                char c = e.getKeyChar();
-                if (!Character.isISOControl(c)) {
-                    inputBuffer.appendChar(c);
-                    refreshInputLabel();
-                }
-            }
-        });
-
+        // [입력 안정화]
         setFocusable(true);
+        setFocusTraversalKeysEnabled(false);
+        setupKeyBindings();
         SwingUtilities.invokeLater(this::grabFocusSafely);
+        playField.setFocusable(false);
+        wordLabel.setFocusable(false);
+        toastLabel.setFocusable(false);
 
-        // 캐럿 타이머
-        caretTimer = new Timer(500, e -> { caretOn = !caretOn; refreshInputLabel(); });
-        caretTimer.start();
 
-        // 1초 틱 타이머 (시간 감소)
+        // [1초 틱]
         tickTimer = new Timer(1000, e -> {
             if (timeLeft > 0) {
                 timeLeft--;
                 timeLabel.setText("Time: " + timeLeft);
-                if (timeLeft == 0 && !playField.isAllCleared()) {
-                    onStageFailed(); // ★ 실패: 즉시 Ranking
-                }
+                if (timeLeft == 0 && !playField.isAllCleared()) onStageFailed();
             }
         });
 
-        // ★ NEW: 진입 시 컨텍스트 HUD 초기 동기화
-        updateContextHud(); // ★ NEW
+        // ▼ [NEW] 이미지 로드
+        heartImg = ImageAssets.load("heart.png");
+        houseImg = ImageAssets.load("home.png");
+        applyStageBackground(stage);
 
-        // 첫 단어 표시
+        setStage(1);
+        applyStageBackground(1);
+
+        // HUD 동기화/첫 단어
+        updateContextHud();
         showCurrentWord();
     }
 
-    // (+) Session 닉네임을 가장 우선으로 표시하고, 없으면 GameContext로 폴백
-    private void updateContextHud() {
-        // 1) Session에서 닉네임 우선
-        String name = Session.getNickname();
+    // ▼ [NEW] 스테이지별 배경 로드
+    private void applyStageBackground(int stage) {
+        String bgName = switch (stage) {
+            case 1 -> "bg_level1.png";
+            case 2 -> "bg_level2.png";
+            default -> "bg_level3.png";
+        };
+        bgImg = ImageAssets.load(bgName);
+        repaint();
+    }
 
-        // 2) Session이 비어 있으면 GameContext 값 사용(폴백)
+    // HUD: Session/Context에서 플레이어/모드 읽어 표시
+    private void updateContextHud() {
+        String name = Session.getNickname();
         if (name == null || name.isBlank()) {
             try {
                 String fromCtx = (ctx != null) ? ctx.getPlayerName() : null;
                 if (fromCtx != null && !fromCtx.isBlank()) name = fromCtx;
             } catch (Exception ignore) {}
         }
-
         if (name == null || name.isBlank()) name = "-";
         playerLabel.setText("Player: " + name);
 
-        // 모드 표시(없으면 "-")
         String mode = "-";
         try {
             String m = (ctx != null) ? String.valueOf(ctx.getMode()) : null;
@@ -212,32 +235,57 @@ public class GamePanel extends JPanel implements Showable {
         modeLabel.setText("Mode: " + mode);
     }
 
+
     // Enter 처리: 입력 단어로 풍선 팝 시도 → 점수/토스트
     private void onEnter() {
-        String typed = inputBuffer.getText().trim();
+        String typed = inputField.getText().trim();
+
+        // 1) 빈 입력은 바로 Miss
         if (typed.isEmpty()) {
             showToast("✗ Miss", new Color(190, 60, 60));
             return;
         }
 
-        boolean popped = playField.popFirstByText(typed); // 풍선 제거 시도
-        if (popped) {
-            score += 10; // 항상 +10점
+        // 2) 맞춘 효과 정보 받기 (없으면 null)
+        PopResult popped = playField.popFirstByText(typed);
+
+        if (popped != null) {
+            // --- 성공 처리 ---
+            score += 10; // 임시 가산점
             scoreLabel.setText("Score: " + score);
+
+            // ★ 아이템 효과 적용
+            if (popped.category == ItemCategory.TIME) {
+                timeLeft = Math.max(0, timeLeft + popped.itemValue);
+                timeLabel.setText("Time: " + timeLeft);
+            } else if (popped.category == ItemCategory.BALLOON) {
+                // 예: ±1을 점수 보너스(×5)로 반영
+                score += (popped.itemValue * 5);
+                scoreLabel.setText("Score: " + score);
+            }
+
             showToast("✓ Pop!", new Color(25, 155, 75));
 
-            //모든 풍선 제거 시 스테이지 성공 처리
-            if(playField.isAllCleared()){
-                onStageCleared(); // ★ 성공 흐름으로
+            if (playField.isAllCleared()) {
+                onStageCleared();
                 return;
             }
         } else {
+            // --- 실패 처리: 단어 불일치 ---
             showToast("✗ Miss", new Color(190, 60, 60));
+            lives = Math.max(0, lives - 1); // 오타 1회 = 목숨 1 감소
+            playField.repaint();             // 하트 즉시 갱신
+            if (lives == 0) {
+                onStageFailed();
+                return;
+            }
         }
 
-        inputBuffer.clear();
-        refreshInputLabel();
+        // 3) 입력창 정리
+        inputField.setText("");
     }
+
+
 
     private void showToast(String msg, Color color) {
         toastLabel.setForeground(color);
@@ -251,77 +299,63 @@ public class GamePanel extends JPanel implements Showable {
         wordIndex = (wordIndex + 1) % words.size();
         showCurrentWord();
     }
-
-    private String getCurrentWord() {
-        return words.get(wordIndex);
-    }
-
+    private String getCurrentWord() { return words.get(wordIndex); }
     private void showCurrentWord() {
         wordLabel.setText(getCurrentWord());
-        setStage(stage); //여기가 단계별 SWITCH
     }
 
-    // [D6-3] 시간 종료 시 결과 화면으로 전환
     private void gameOver() {
-        showToast("Time Over!", new Color(90, 90, 90)); // 토스트 출력
-        if (tickTimer.isRunning()) tickTimer.stop();    // 1초 타이머 정지
-        // 캐럿/프레임 타이머는 onHidden()에서 정리됨
-
-        //방금 끝낸 스테이지를 기록 -> ResultScreen의 Retry분기에 사용
+        showToast("Time Over!", new Color(90, 90, 90));
+        if (tickTimer.isRunning()) tickTimer.stop();
         lastCompletedStage = stage;
-
-        showResult(); // ★ 점수/시간만으로 결과 전달(정답/오답 카운터 없이)
+        showResult();
     }
 
+    // grabFocusSafely() 안에서
     private void grabFocusSafely() {
-        requestFocusInWindow();
+        inputField.requestFocusInWindow();    // ← 텍스트필드에 포커스!
         if (!tickTimer.isRunning()) tickTimer.start();
     }
 
-    private void refreshInputLabel() {
-        String text = inputBuffer.getText();
-        String caret = caretOn ? "▌" : " ";
-        inputLabel.setText("▶ " + text + " " + caret);
-        repaint();
-    }
 
-    /** 라우터가 카드 전환 직후 호출해 포커스/타이머를 보장 */
-    @Override
-    public void onShown() {
-        navigatedAway = false; // 화면에 다시 들어올 때 플래그 리셋
+    @Override public void onShown() {
+        navigatedAway = false;
         grabFocusSafely();
-        updateContextHud();    // ★ NEW: 재진입 시 최신 이름/모드 반영
+        updateContextHud();
     }
 
-    // Showable에 onHidden()이 없을 수 있으므로 @Override 제거
     public void onHidden() {
-        navigatedAway = true;                    // ★ 떠났다고 표시(뒤늦은 타이머 가드)
-
+        navigatedAway = true;
         if (tickTimer.isRunning()) tickTimer.stop();
-        if (caretTimer.isRunning()) caretTimer.stop();
         if (playField != null) playField.stop();
-
-        if (overlayTimer.isRunning()) overlayTimer.stop();  // ★ 오버레이 타이머도 정리
-        //resetGame(); // [D6-4] 화면이 숨겨질 때 상태 초기화 (필요 시 사용)
+        if (overlayTimer.isRunning()) overlayTimer.stop();
     }
 
     // ==========================================================
-    // 내부 클래스 PlayField : 풍선 30개 일괄 생성 + 렌더/업데이트
+    // 내부 클래스 PlayField : PNG 풍선 렌더/업데이트
     // ==========================================================
     private final class PlayField extends JPanel {
-        private final BalloonRenderer renderer = new BalloonRenderer();
-        private final ArrayList<Balloon> balloons = new ArrayList<>();
+        private final BalloonSpriteRenderer renderer = new BalloonSpriteRenderer();
+        private final ArrayList<BalloonSprite> balloons = new ArrayList<>();
         private final Random rnd = new Random();
         private final Timer frameTimer; // ~60fps
 
+        // [ADD] 단어별 아이템 효과 매핑(한 스테이지에 4개 배정)
+        private final java.util.Map<String, PopResult> itemByWord = new java.util.HashMap<>();
+
+        // 집 위치/크기/앵커
+        private Rectangle houseRect = new Rectangle(0,0,0,0);
+        private Point houseAnchor = new Point(0,0);
+
         PlayField() {
-            setOpaque(true);
-            setBackground(Theme.BG_DARK);
+            setOpaque(false); //배경은 png만 쓰므로
 
-            // 크기 확정 뒤 1회성으로 30개 스폰
-            SwingUtilities.invokeLater(this::spawnInitialBalloons);
+            SwingUtilities.invokeLater(() -> {
+                layoutHouse();
+                spawnInitialBalloons();
+            });
 
-            // 16ms ≈ 60fps 주기로 모델 업데이트 + 화면 리페인트
+            // 16ms ≈ 60fps
             frameTimer = new Timer(16, e -> {
                 updateModel();
                 repaint();
@@ -329,81 +363,212 @@ public class GamePanel extends JPanel implements Showable {
             frameTimer.start();
         }
 
-        /** 게임 컨셉: 처음에 30개 풍선을 한꺼번에 생성 */
+        //집 너비 = 화면폭의 10%, 바닥과 72px 간격, 앵커는 지붕 30% 높이 지점
+        private void layoutHouse() {
+            int W = Math.max(getWidth(), 900);
+            int H = Math.max(getHeight(), 600);
+
+            if (houseImg == null) houseImg = ImageAssets.load("home.png");
+
+            // ★ 집 전체 스케일 다운 (화면 폭의 9% 정도, 최소 90px, 최대 130px)
+            int hw = Math.max(90, (int)(W * 0.09));
+            int hh = (int)(hw * (houseImg.getHeight() / (double) houseImg.getWidth()));
+
+            int hx = W/2 - hw/2;
+            int hy = H - hh - 72; // 바닥과 간격
+
+            houseRect.setBounds(hx, hy, hw, hh);
+            // ★ 지붕 1/3 높이 지점에 앵커
+            houseAnchor.setLocation(hx + hw/2, hy + (int)(hh * 0.30));
+        }
+
+        /** 처음 풍선 대량 생성 */
         private void spawnInitialBalloons() {
             balloons.clear();
-            final int total = 30;
-            int w = Math.max(getWidth(), 800);   // 레이아웃 전 0일 수 있어 디폴트 보정
-            int h = Math.max(getHeight(), 500);
 
-            int margin = 40;
-            for (int i = 0; i < total; i++) {
-                String text = words.get(rnd.nextInt(words.size()));
+            Skin[] skins = new Skin[]{ Skin.PURPLE, Skin.YELLOW, Skin.PINK, Skin.ORANGE, Skin.GREEN };
 
-                int x = margin + rnd.nextInt(Math.max(1, w - margin * 2));
-                int y = h - margin - rnd.nextInt(120); // 바닥에서 약간 위 랜덤
+            int W = Math.max(getWidth(), 900);
+            int H = Math.max(getHeight(), 600);
+            int centerX = W / 2;
 
-                int speed = 26 + rnd.nextInt(8); // 26~33 정도
-                Kind kind = Kind.RED;            // NORMAL이 없으므로 기본 RED로 세팅
+            // 3-4-5-6-5-4-3 패턴
+            int[] pattern = {3, 4, 5, 6, 5, 4, 3};
+            int s = Math.max(68, Math.min(92, (int)(W * 0.07)));   // 한 변 길이
+            int gapX = (int)(s * 1.20);                             // 가로 간격
+            int gapY = (int)(s * 0.95);                             // 세로 간격
+            //다발의 맨 윗줄 Y (집 앵커에서 충분히 위로)
+            int topY = Math.max(110, houseAnchor.y - (gapY * (pattern.length + 1)));
 
-                balloons.add(new Balloon(text, x, y, speed, kind));
-            }
-        }
 
-        private void updateModel() {
-            // Day5-Static: 풍선은 이동하지 않음. 업데이트/제거 없음.
-            // (나중에 Day6에서 팝 이펙트만 잠깐 쓸 때 여기서 처리)
-        }
+            String[] bank = {
+                    "도서관","고양이","운동장","한가람","바다빛","이야기","도전정신",
+                    "자다","인터넷","병원","전문가","초롱빛","노력하다","택시","집","나라",
+                    "달빛","별빛","산책","행복","용기","친구","추억","봄날","밤하늘"
+            };
+            int idx = 0;
 
-        /** 입력 텍스트(대소문자 무시)와 같은 첫 풍선을 제거 */
-        boolean popFirstByText(String text) {
-            if (text == null || text.isEmpty()) return false;
-            for (int i = 0; i < balloons.size(); i++) {
-                Balloon b = balloons.get(i);
-                String bt = readBalloonText(b);
-                if (bt.equalsIgnoreCase(text)) {
-                    balloons.remove(i);
-                    // TODO: Day6 - 팝 이펙트/사운드
-                    return true;
+            for (int r = 0; r < pattern.length; r++) {
+                int count = pattern[r];
+                int y = topY + r * gapY;
+
+                int totalWidth = (count - 1) * gapX;
+                int startX = centerX - totalWidth / 2;
+
+                for (int c = 0; c < count; c++) {
+                    Skin skin = skins[(idx + c) % skins.length];
+                    BufferedImage img = BalloonSkins.of(skin);
+                    int x = startX + c * gapX;
+
+                    BalloonSprite b = new BalloonSprite(
+                            bank[idx % bank.length], img, x, y,
+                            houseAnchor.x, houseAnchor.y
+                    );
+                    // ★ 정방형(1:1) 보장
+                    b.w = s;
+                    b.h = s;
+
+                    balloons.add(b);
+                    idx++;
                 }
             }
-            return false;
+            // ★ SINGLE 모드 규칙대로 아이템 4개를 배정(빨강 2, 파랑 2 / 값은 각자 ± 랜덤)
+            assignRandomItemsForSingleMode();
         }
 
-        boolean isAllCleared() {
-            return balloons.isEmpty();
+        /** ★ SINGLE MODE: TIME(빨강) 2개, BALLOON(파랑) 2개를 중복 없이 랜덤 단어에 배정 */
+        private void assignRandomItemsForSingleMode() {
+            itemByWord.clear();
+
+            // 현재 화면에 올라간 모든 단어 수집
+            java.util.List<String> wordsOnScreen = new java.util.ArrayList<>();
+            for (BalloonSprite b : balloons) wordsOnScreen.add(b.text);
+
+            if (wordsOnScreen.size() < 4) return; // 안전장치
+
+            // 인덱스 셔플
+            java.util.List<Integer> indices = new java.util.ArrayList<>();
+            for (int i = 0; i < wordsOnScreen.size(); i++) indices.add(i);
+            java.util.Collections.shuffle(indices, rnd);
+
+            // 앞에서 4개 선택: 0,1 → TIME / 2,3 → BALLOON
+            int[] pick = { indices.get(0), indices.get(1), indices.get(2), indices.get(3) };
+
+            // TIME 2개: 각 +5 또는 -5
+            for (int k = 0; k < 2; k++) {
+                String w = wordsOnScreen.get(pick[k]);
+                int val = (rnd.nextBoolean() ? +5 : -5);
+                itemByWord.put(w, new PopResult(ItemCategory.TIME, val));
+            }
+            // BALLOON 2개: 각 +1 또는 -1
+            for (int k = 2; k < 4; k++) {
+                String w = wordsOnScreen.get(pick[k]);
+                int val = (rnd.nextBoolean() ? +1 : -1);
+                itemByWord.put(w, new PopResult(ItemCategory.BALLOON, val));
+            }
         }
+
+
+
+        private void updateModel() { /* Day5-Static: 풍선 고정 */ }
+
+        /** 입력 텍스트와 같은 첫 PNG 풍선을 제거하고, 효과정보(PopResult)를 반환(없으면 null) */
+        PopResult popFirstByText(String text) {
+            if (text == null || text.isEmpty()) return null;
+            for (int i = 0; i < balloons.size(); i++) {
+                BalloonSprite b = balloons.get(i);
+                if (b.text.equalsIgnoreCase(text)) {
+                    // 제거 전에 이 단어에 배정된 효과를 가져온다(없으면 카테고리 없음 + 0 효과)
+                    PopResult effect = itemByWord.getOrDefault(
+                            b.text,
+                            new PopResult(null, 0)   // ★ 기본값: category=null, itemValue=0
+                    );
+
+                    balloons.remove(i);
+                    return effect;
+                }
+            }
+            return null;
+        }
+
+
+
+
+
+        boolean isAllCleared() { return balloons.isEmpty(); }
 
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
             final Graphics2D g2 = (Graphics2D) g.create();
 
-            // 1) 배경: 라운드 박스 + 그라디언트
-            Paint old = g2.getPaint();
-            g2.setPaint(new GradientPaint(0, 0, Theme.BG_DARK, 0, getHeight(), Theme.BG_PANEL));
-            g2.fillRoundRect(20, 20, getWidth() - 40, getHeight() - 40, 16, 16);
-            g2.setPaint(old);
+            // 0) 배경 PNG
+            //if (bgImg != null) g2.drawImage(bgImg, 0, 0, getWidth(), getHeight(), null);
 
-            // 2) 풍선 렌더링 (리스트로 전달)
-            renderer.render(g2, balloons);
+            // 1) 집
+            if (houseImg != null) {
+                g2.drawImage(houseImg, houseRect.x, houseRect.y, houseRect.width, houseRect.height, null);
+            }
+
+            // 2) 모든 줄(실)을 먼저 한 번에 그리기
+            for (var b : balloons) {
+                b.anchorX = houseAnchor.x; // 앵커 최신화
+                b.anchorY = houseAnchor.y;
+                renderer.renderLineOnly(g2, b);
+            }
+
+// 3) 그 다음에 모든 풍선 이미지+글자를 한 번에
+            for (var b : balloons) {
+                renderer.renderBalloonOnly(g2, b);
+            }
+
+
+            // 3) 좌상단 HUD: life 하트 + 타이머
+            drawHUD(g2);
 
             g2.dispose();
         }
 
-        void stop() {
-            if (frameTimer != null) frameTimer.stop();
+        /** 좌상단 하트/타이머 */
+        private void drawHUD(Graphics2D g2) {
+            g2.setFont(new Font("Dialog", Font.BOLD, 18));
+            g2.setColor(Color.WHITE);
+            int x = 16, y = 28;
+
+            g2.drawString("life:", x, y);
+
+            // ★ 필드 값 사용 (0~3로 보정)
+            int lifeCount = Math.max(0, Math.min(3, GamePanel.this.lives));
+
+
+            int hx = x + 50;
+            for (int i = 0; i < lifeCount; i++) {
+                if (heartImg != null) {
+                    g2.drawImage(heartImg, hx + i * 28, y - 18, 24, 24, null);
+                }
+            }
+
+            String timeStr = String.format("Time limit : %d m %02d s",
+                    Math.max(0, timeLeft) / 60, Math.max(0, timeLeft) % 60);
+            g2.drawString(timeStr, x, y + 24);
         }
 
-        /** Balloon의 텍스트를 API에 상관없이 읽어오는 유틸(리플렉션 사용) */
-        private String readBalloonText(Balloon b) {
-            try { var m = b.getClass().getMethod("getText"); Object r = m.invoke(b); if (r != null) return r.toString(); } catch (Exception ignored) {}
-            try { var m = b.getClass().getMethod("getWord"); Object r = m.invoke(b); if (r != null) return r.toString(); } catch (Exception ignored) {}
-            try { var m = b.getClass().getMethod("getLabel"); Object r = m.invoke(b); if (r != null) return r.toString(); } catch (Exception ignored) {}
-            try { var f = b.getClass().getDeclaredField("text"); f.setAccessible(true); Object r = f.get(b); if (r != null) return r.toString(); } catch (Exception ignored) {}
-            try { var f = b.getClass().getDeclaredField("word"); f.setAccessible(true); Object r = f.get(b); if (r != null) return r.toString(); } catch (Exception ignored) {}
-            try { var f = b.getClass().getDeclaredField("label"); f.setAccessible(true); Object r = f.get(b); if (r != null) return r.toString(); } catch (Exception ignored) {}
-            return "";
+
+        void stop() { if (frameTimer != null) frameTimer.stop(); }
+
+        @Override public void invalidate() {
+            super.invalidate();
+            SwingUtilities.invokeLater(() -> {
+                if (getWidth() > 0) {
+                    layoutHouse();
+                    // 풍선들의 앵커 최신화
+                    for (var b : balloons) {
+                        b.anchorX = houseAnchor.x;
+                        b.anchorY = houseAnchor.y;
+                    }
+                    repaint();
+                }
+            });
         }
     }
 
@@ -413,109 +578,74 @@ public class GamePanel extends JPanel implements Showable {
         switch (stage) {
             case 1 -> t = 90;
             case 2 -> t = 80;
-            default -> t = 70;
+            case 3 -> t = 70;
+            default -> t = 90;
         }
+        this.stage = stage;
         this.timeLeft = t;
         this.timeLabel.setText("Time: " + t);
+        applyStageBackground(stage); // ▼ [NEW] 배경 교체
     }
 
-    // [D6-3] 결과 컨텍스트 세팅 → Result 화면으로 전환(정답/오답 카운터 없이)
+    // 결과 컨텍스트 → Result 화면
     private void showResult() {
-        if (navigatedAway) return;            // ★ 이미 다른 화면으로 이동했다면 무시
+        if (navigatedAway) return;
+        double accuracy   = 0.0;
+        int correctCount  = 0;
+        int wrongCount    = 0;
 
-        // [1] 정확도/카운터는 사용하지 않으므로 0으로 채움
-        double accuracy   = 0.0; // 정답률 미집계 → 0.0
-        int correctCount  = 0;   // 정답 수 미집계 → 0
-        int wrongCount    = 0;   // 오답 수 미집계 → 0
-
-        // [2] 결과 패킷 구성 (현재 필드 score/timeLeft 사용)
-        ResultData data = new ResultData(
-                score,                         // 최종 점수
-                Math.max(0, timeLeft),         // 남은 시간(음수 방지)
-                accuracy,                      // 정확도(0.0)
-                correctCount,                  // 맞힌 개수(0)
-                wrongCount                     // 틀린 개수(0)
-        );
-
-        // [3] 컨텍스트 저장
+        ResultData data = new ResultData(score, Math.max(0, timeLeft), accuracy, correctCount, wrongCount);
         ResultContext.set(data);
 
-        // [4] ResultScreen 인스턴스를 꺼내어 라벨도 즉시 반영
         if (router != null) {
             try {
-                // ScreenRouter에 패치한 get(String) 사용
                 Component c = router.get(ScreenId.RESULT);
                 if (c instanceof ResultScreen rs) {
-                    rs.setResult(score, accuracy, Math.max(0, timeLeft)); // 라벨/상태 주입
+                    rs.setResult(score, accuracy, Math.max(0, timeLeft));
                 }
-                router.show(ScreenId.RESULT); // 결과 화면으로 이동 (여기서 "이름 저장" 버튼을 눌러야 CSV 저장 가능)
+                router.show(ScreenId.RESULT);
             } catch (Exception ex) {
                 System.err.println("[GamePanel] cannot inject result into ResultScreen: " + ex);
-                router.show(ScreenId.RESULT); // 그래도 RESULT로는 이동
+                router.show(ScreenId.RESULT);
             }
         } else {
             System.err.println("[GamePanel] router is null → cannot navigate to RESULT");
         }
     }
 
-    // [D6-4+] GamePanel 초기화(시간/점수/입력/풍선 재생성 + 자동 다음 스테이지)
     private void resetGame() {
-        // 1. 다음 스테이지로 증가 (3 초과면 다시 1로)
-        stage++;
-        if (stage > 3) stage = 1;
+        stage++; if (stage > 3) stage = 1;
+        setStage(stage);
+        score = 0; scoreLabel.setText("Score: 0");
 
-        // 2. 스테이지에 따른 시간 재설정
-        setStage(stage); // ★ 기존 함수 활용 (1=90, 2=80, 3=70초)
-
-        // 3. 점수 리셋
-        score = 0;
-        scoreLabel.setText("Score: 0");
-
-        // 4. 입력창 초기화
-        inputBuffer.clear();
-        refreshInputLabel();
-
-        // 5. 풍선 리셋 (기존 풍선 제거 후 새로 스폰)
         if (playField != null) {
             playField.balloons.clear();
             playField.spawnInitialBalloons();
         }
 
-        // 6. 포커스 복구 & 타이머 재시작
         caretOn = true;
         if (!tickTimer.isRunning()) tickTimer.start();
-        if (!caretTimer.isRunning()) caretTimer.start();
         grabFocusSafely();
-
-        // 7. 토스트 표시 (시각적 확인용)
         showToast("Stage " + stage + " Start!", new Color(100, 200, 100));
     }
 
-    // ─────────────── 스테이지 성공/실패/전환 플로우 ───────────────
-
-    // 스테이지 성공 시 호출 (모든 풍선 제거)
     private void onStageCleared() {
-        if (stageClearedThisRound) return;   // 중복 방지
+        if (stageClearedThisRound) return;
         stageClearedThisRound = true;
 
-        // 1) 남은 시간 보너스(1초=1점) 즉시 합산
         if (timeLeft > 0) {
             score += timeLeft;
             scoreLabel.setText("Score: " + score);
         }
 
-        // 2) 성공 오버레이 표시
         showOverlay("✔ SUCCESS!  (+ " + Math.max(0, timeLeft) + ")", new Color(110, 220, 110));
-
-        // 3) 마지막 스테이지 성공이면 Ranking으로, 아니면 Ready → 다음 스테이지 시작
         lastCompletedStage = stage;
 
         if (stage >= 3) {
-            Timer t = new Timer(200, e -> showResult()); // ★ RANKING 대신 RESULT
+            Timer t = new Timer(200, e -> showResult());
             t.setRepeats(false);
             t.start();
         } else {
-            // 다음 스테이지 준비 → 시작 (각각 한번만)
             Timer t1 = new Timer(1250, e -> {
                 showOverlay("Stage " + (stage + 1) + " Ready...", new Color(255, 230, 140));
                 Timer t2 = new Timer(1250, ev -> startNextStage());
@@ -527,53 +657,52 @@ public class GamePanel extends JPanel implements Showable {
         }
     }
 
-    // 스테이지 실패(시간 0인데 풍선 남음) → 바로 랭킹
     private void onStageFailed() {
-        // 실패 오버레이(짧게)
         showOverlay("✖ FAILED!  (Stage " + stage + ")", new Color(230, 90, 90));
-        // 바로 랭킹으로
         new Timer(500, e -> showResult()).start();
     }
 
-    // 다음 스테이지로 넘어가 실제 시작
     private void startNextStage() {
-        if (navigatedAway) return;   // ★ 이미 다른 화면으로 갔다면 아무 것도 하지 않음
-
+        if (navigatedAway) return;
         stageClearedThisRound = false;
 
-        if (stage >= 3) { // 방어: 혹시라도 3 이상이면 증가 금지
-            showRanking();
-            return;
-        }
+        if (stage >= 3) { showRanking(); return; }
 
-        stage++; //1->2, 2->3
-        setStage(stage); // 1=90, 2=80, 3=70
+        stage++; setStage(stage);
 
-        // 풍선 재생성
         if (playField != null) {
             playField.balloons.clear();
             playField.spawnInitialBalloons();
         }
 
-        // 타이머/포커스 재시작
         caretOn = true;
         if (!tickTimer.isRunning()) tickTimer.start();
-        if (!caretTimer.isRunning()) caretTimer.start();
         grabFocusSafely();
 
         showToast("Stage " + stage + " Start!", new Color(100, 200, 100));
     }
 
-    // 중앙 상단 오버레이 공용 표시
     private void showOverlay(String text, Color color) {
         overlayLabel.setText(text);
         overlayLabel.setForeground(color);
         overlayLabel.setVisible(true);
-        overlayTimer.restart(); // 1.2s 후 자동 숨김
+        overlayTimer.restart();
     }
 
-    // 누적 점수로 Ranking 화면으로 이동
-    private void showRanking() {
-        showResult(); //Result를 먼저 띄워서 이름 입력/csv 저장 후, 사용자가 Ranking으로 이동
+    private void showRanking() { showResult(); }
+
+    // setupKeyBindings()는 엔터/ESC/백스페이스 정도만 남기고,
+// 글자 입력 바인딩은 전부 제거하세요(IME가 처리).
+    private void setupKeyBindings() {
+        // ENTER → 제출
+        inputField.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "submitField");
+        inputField.getActionMap().put("submitField", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { onEnter(); }
+        });
+        // ESC → 전체 삭제
+        inputField.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "clearField");
+        inputField.getActionMap().put("clearField", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { inputField.setText(""); }
+        });
     }
 }
