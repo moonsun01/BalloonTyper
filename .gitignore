@@ -32,3 +32,15 @@ Thumbs.db
 # Virtual machine crash logs
 hs_err_pid*
 replay_pid*
+# build outputs
+/out/
+/build/
+/target/
+/*.class
+
+# IDE
+/.idea/
+/*.iml
+
+# logs
+*.log
