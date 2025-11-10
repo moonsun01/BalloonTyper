@@ -1,121 +1,66 @@
 package com.balloon.game.model;
 
-import java.awt.Color;
-import java.util.Objects;
+import com.balloon.ui.skin.SecretItemSkin.ItemCategory; // 글자색을 정할 카테고리(시간/풍선/트릭/일반)
 
 /**
- * 도메인 엔티티: Balloon (로직 + 렌더링 공용)
- * - 단어/좌표/반지름/종류/활성(active) 상태
- * - pop(), matchesExact(), tryPop() 등 로직 메서드 포함
- * - getFillColor(), update() 등 렌더링 보조 메서드 포함
+ * Balloon
+ * - 게임 내 풍선(단어) 한 개를 표현하는 모델.
+ * - Day 9: 풍선 안 글씨 색상을 위해 ItemCategory를 보유하도록 확장.
  */
 public class Balloon {
-    private static int NEXT_ID = 1;
 
-    private final int id;
-    private String word;
+    // 풍선 종류(이미 있던 enum이라고 가정)
+    public enum Kind { RED, GREEN, BLUE } // 실제 프로젝트 enum 그대로 두세요.
 
-    // 위치/표시
-    private float x;
-    private float y;
-    private float radius = 24f;
-    private float vy = -0.5f; // 위로 살짝 상승(렌더링 연출용)
-    public enum Kind { RED, BLUE, GREEN }
-    private Kind kind = Kind.RED;
+    // --- 기본 속성 ---
+    private final String text;   // 풍선 안에 적힌 단어
+    private float x;             // 화면상 X 좌표
+    private float y;             // 화면상 Y 좌표
+    private final Kind kind;     // 외형(렌더링에 쓰일 수도 있음)
 
-    // 로직 상태
     private boolean active = true;
+    // --- [Day 9] 글자색을 위한 카테고리 ---
+    private ItemCategory category = ItemCategory.NONE; // 기본은 일반 단어
 
-    public Balloon(String word, float x, float y, Kind kind) {
-        this.id = NEXT_ID++;
-        this.word = word;
+    // 기존에 사용 중인 생성자(호환 유지)
+    public Balloon(String text, float x, float y, Kind kind) {
+        this.text = text;
         this.x = x;
         this.y = y;
-        if (kind != null) this.kind = kind;
+        this.kind = kind;
     }
 
-    // ===== 로직 메서드 =====
-    public boolean isActive() { return active; }
-
-    /** 강제 팝 */
-    public void pop() { this.active = false; }
-
-    /** 입력과 정확 일치 (대소문자 무시) */
-    public boolean matchesExact(String input) {
-        if (!active) return false;
-        if (input == null) return false;
-        String s = input.trim();
-        if (s.isEmpty() || word == null) return false;
-        return word.equalsIgnoreCase(s);
+    // (선택) 카테고리까지 지정하는 보조 생성자
+    public Balloon(String text, float x, float y, Kind kind, ItemCategory category) {
+        this(text, x, y, kind);
+        this.category = (category != null) ? category : ItemCategory.NONE;
     }
 
-    /** 정확 일치 시 팝 처리 */
-    public boolean tryPop(String input) {
-        if (!isActive()) return false;
-        if (matchesExact(input)) {
-            pop();
-            return true;
-        }
-        return false;
-    }
+    // --- getters/setters ---
+    public String getText() { return text; }
 
-    // ===== 렌더링 보조 =====
-    public void update() {
-        // 필요시 상승 연출 (UI 연동 상황에 따라 끄거나 수정)
-        y += vy;
-    }
-
-    public boolean isOffscreen(int width, int height) {
-        // 화면 상단을 벗어났는지 체크(필요 시 조건 조정)
-        return (y + radius) < 0 || (y - radius) > height || (x + radius) < 0 || (x - radius) > width;
-    }
-
-    public Color getFillColor() {
-        return switch (kind) {
-            case RED   -> new Color(234, 84, 85);
-            case BLUE  -> new Color(80, 156, 245);
-            case GREEN -> new Color(75, 203, 148);
-        };
-    }
-
-    // ===== 게터/세터 =====
-    public int getId() { return id; }
-    public String getWord() { return word; }
     public float getX() { return x; }
     public float getY() { return y; }
-    public float getRadius() { return radius; }
-    public Kind getKind() { return kind; }
-    public float getVy() { return vy; }
 
-    public void setWord(String word) { this.word = word; }
     public void setX(float x) { this.x = x; }
     public void setY(float y) { this.y = y; }
-    public void setRadius(float radius) { this.radius = radius; }
-    public void setKind(Kind kind) { this.kind = kind; }
-    public void setVy(float vy) { this.vy = vy; }
 
-    @Override
-    public String toString() {
-        return "Balloon{" +
-                "id=" + id +
-                ", word='" + word + '\'' +
-                ", x=" + x +
-                ", y=" + y +
-                ", active=" + active +
-                ", kind=" + kind +
-                '}';
+    public Kind getKind() { return kind; }
+
+    //호환 메서드 추가 / GameJudge가 기대하는 api
+    public String getWord() { return text; }
+
+    //풍선이 아직 게임중인지 여부(active)
+    public boolean isActive() { return active; }
+
+    //풍선을 터뜨려 비활성화
+    public void pop() {this.active = false;}
+
+
+    // [Day 9] 카테고리 접근자
+    public ItemCategory getCategory() { return category; }
+    public void setCategory(ItemCategory category) {
+        this.category = (category != null) ? category : ItemCategory.NONE;
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof Balloon)) return false;
-        Balloon balloon = (Balloon) o;
-        return id == balloon.id;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id);
-    }
 }
