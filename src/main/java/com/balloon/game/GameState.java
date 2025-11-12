@@ -31,7 +31,7 @@ public class GameState {
 
     //점수 (남은시간->점수 누적)
     public void addRemainingTimeAsScore() {
-        totalScore += Math.max(0, timeLeft);            // 0이랑 timeleft중 큰 값 반환 후 더하기
+        totalScore += Math.max(0, timeLeft) * 10;            // 0이랑 timeleft중 큰 값 반환 후 더하기
     }
     public int getTotalScore() { return totalScore; }
 
@@ -49,5 +49,9 @@ public class GameState {
         boolean noLife = (life <= 0);
         boolean clearedAll = (level > 3);
         return timeOut || noLife || clearedAll;
+    }
+
+    public void addSeconds(int delta) {
+        timeLeft = Math.max(0, timeLeft + delta);
     }
 }
