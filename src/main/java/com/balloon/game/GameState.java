@@ -50,4 +50,6 @@ public class GameState {
         boolean clearedAll = (level > 3);
         return timeOut || noLife || clearedAll;
     }
+
+    public void addTime(int sec) {timeLeft = Math.max(0, timeLeft + sec);}      //아이템
 }
