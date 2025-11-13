@@ -28,6 +28,11 @@ import com.balloon.core.GameContext;
 import com.balloon.ranking.RankingCsvRepository;
 import com.balloon.ranking.RankingRecord;
 
+// 🔽 단어 관련
+import com.balloon.game.CsvWordLoader;
+import com.balloon.game.WordProvider;
+import com.balloon.game.NonRepeatingWordProvider;
+
 /**
  * UI는 1번 코드 스타일 유지 + 게임 로직은 GameState/Rules/Judge 구조 그대로
  */
@@ -40,6 +45,9 @@ public class GamePanel extends JPanel implements Showable {
 
     // 모델 풍선 리스트 (GameJudge에 넘기는 리스트)
     private final List<Balloon> balloons = new ArrayList<>();
+
+    // 단어 공급기 (CSV + 중복 방지)
+    private final WordProvider wordProvider;
 
     // 스코어 브레이크다운 (UI용 임시)
     private int correctCount = 0;
@@ -137,17 +145,6 @@ public class GamePanel extends JPanel implements Showable {
     private boolean resultShown = false;
     public static int lastCompletedStage = 1;
 
-    // 중앙 가이드용 wordIndex (현재는 label 숨김)
-    private int wordIndex = 0;
-    private final List<String> words = List.of(
-            "apple", "orange", "banana", "grape", "melon",
-            "keyboard", "monitor", "java", "swing", "balloon",
-            "house", "safety", "ground", "landing", "rope",
-            "cloud", "river", "green", "delta", "timer",
-            "purple", "queen", "sun", "tree", "unity",
-            "water", "xenon", "youth", "zebra", "type"
-    );
-
     // 전역 컨텍스트
     private final GameContext ctx = GameContext.getInstance();
 
@@ -159,6 +156,10 @@ public class GamePanel extends JPanel implements Showable {
 
     public GamePanel(ScreenRouter router) {
         this.router = router;
+
+        // ====== 단어 로딩 (CSV + NonRepeating) ======
+        List<String> wordList = CsvWordLoader.loadWords("/data/words.csv");
+        this.wordProvider = new NonRepeatingWordProvider(wordList);
 
         // ========= 레이아웃/배경 =========
         setLayout(new BorderLayout());
@@ -279,14 +280,24 @@ public class GamePanel extends JPanel implements Showable {
         // ========= 틱 타이머 (1초) =========
         tickTimer = new javax.swing.Timer(1000, e -> {
             if (resultShown) return;
+
+            // ✅ 풍선이 이미 다 사라져 있으면, 시간 남았어도 바로 클리어 처리
+            if (!stageClearedThisRound && allCleared()) {
+                onStageCleared();
+                return;
+            }
+
             if (state.getTimeLeft() > 0) {
                 state.decreaseTime();
                 refreshHUD();
+
+                // 시간 다 됐는데 풍선 남아 있으면 실패
                 if (state.getTimeLeft() == 0 && !allCleared()) {
                     onStageFailed();
                 }
             }
         });
+
 
         // ========= 이미지 로드 / 배경 =========
         heartImg = ImageAssets.load("heart.png");
@@ -378,6 +389,43 @@ public class GamePanel extends JPanel implements Showable {
         }
     }
 
+    // --------------------------------------------------
+    //  단어/중복 관련 유틸
+    // --------------------------------------------------
+    private static String norm(String s) {
+        if (s == null) return "";
+        s = s.trim();
+        return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFC);
+    }
+
+    // 현재 활성 풍선들 중에 같은 단어가 있는지 확인
+    private boolean hasActiveBalloonWithWord(String word) {
+        String needle = norm(word);
+        for (Balloon b : balloons) {
+            if (b.isActive() && norm(b.getWord()).equalsIgnoreCase(needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // wordProvider에서 "현재 필드에 없는" 단어 골라오기
+    private String nextUniqueWord() {
+        String w = "empty";
+        int tries = 0;
+
+        do {
+            w = wordProvider.nextWord();
+            if (w == null || w.isBlank()) return "empty";
+            tries++;
+            if (tries > 20) { // 단어 부족할 때 무한루프 방지
+                break;
+            }
+        } while (hasActiveBalloonWithWord(w));
+
+        return w;
+    }
+
     private void grabFocusSafely() {
         inputField.requestFocusInWindow();
         if (!tickTimer.isRunning()) tickTimer.start();
@@ -446,12 +494,6 @@ public class GamePanel extends JPanel implements Showable {
         javax.swing.Timer t = new javax.swing.Timer(150, e -> setBackground(old));
         t.setRepeats(false);
         t.start();
-    }
-
-    private static String norm(String s) {
-        if (s == null) return "";
-        s = s.trim();
-        return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFC);
     }
 
     private void removeFirstByWord(String word) {
@@ -560,8 +602,7 @@ public class GamePanel extends JPanel implements Showable {
                 Component c = router.get(ScreenId.RESULT);
                 if (c instanceof ResultScreen rs) {
                     rs.setResult(totalScore, acc, remainTime);
-                    // setBreakdown 있는 버전 기준, 없으면 이 한 줄만 주석 처리
-                    //rs.setBreakdown(wordScore, timeBonus, 0, itemBonus);
+                    // rs.setBreakdown(wordScore, timeBonus, 0, itemBonus);
                 }
                 router.show(ScreenId.RESULT);
             } catch (Exception ex) {
@@ -693,12 +734,6 @@ public class GamePanel extends JPanel implements Showable {
                     : 300;
             int topY = bottomY - (rows - 1) * gapY;
 
-            String[] bank = {
-                    "도서관", "고양이", "운동장", "한가람", "바다빛", "이야기", "도전정신",
-                    "자다", "인터넷", "병원", "전문가", "초롱빛", "노력하다", "택시", "집", "나라",
-                    "달빛", "별빛", "산책", "행복", "용기", "친구", "추억", "봄날", "밤하늘"
-            };
-
             Skin[] skins = new Skin[]{Skin.PURPLE, Skin.YELLOW, Skin.PINK, Skin.ORANGE, Skin.GREEN};
             int idx = 0;
 
@@ -714,7 +749,8 @@ public class GamePanel extends JPanel implements Showable {
                     BufferedImage img = BalloonSkins.of(skin);
                     int x = startX + c * gapX;
 
-                    String word = bank[idx % bank.length];
+                    // 🔽 현재 필드에서 안 쓰는 단어만 사용
+                    String word = nextUniqueWord();
 
                     Balloon m = new Balloon(word, x, y, toKind(skin));
                     balloons.add(m);
@@ -788,10 +824,11 @@ public class GamePanel extends JPanel implements Showable {
             int y = Math.max(80, houseAnchor.y - 6 * s);
 
             Skin[] skins = new Skin[]{Skin.PURPLE, Skin.YELLOW, Skin.PINK, Skin.ORANGE, Skin.GREEN};
-            String[] bank = {"보라", "노랑", "분홍", "주황", "초록", "파랑", "하양", "검정"};
 
             for (int i = 0; i < n; i++) {
-                String word = bank[rnd.nextInt(bank.length)] + (rnd.nextInt(90) + 10);
+                // 🔽 아이템으로 추가되는 풍선도 중복 없는 단어 사용
+                String word = nextUniqueWord();
+
                 Skin skin = skins[rnd.nextInt(skins.length)];
                 BufferedImage img = BalloonSkins.of(skin);
                 int x = 40 + rnd.nextInt(Math.max(1, W - 80));
@@ -932,8 +969,7 @@ public class GamePanel extends JPanel implements Showable {
 
         try {
             RankingCsvRepository repo = new RankingCsvRepository();
-            // TODO: 실제 메서드 이름에 맞게 수정 (예: save(record), add(record) 등)
-            // repo.append(record);
+            // repo.append(record); // 실제 메서드 이름에 맞게 수정
         } catch (Exception e) {
             System.err.println("[GamePanel] saveRanking failed: " + e);
         }
