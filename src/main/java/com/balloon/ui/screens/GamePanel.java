@@ -11,252 +11,430 @@ import com.balloon.items.ItemSpawner;
 import com.balloon.ui.assets.BalloonSkins;
 import com.balloon.ui.assets.BalloonSkins.Skin;
 import com.balloon.ui.assets.ImageAssets;
-import com.balloon.ui.render.BalloonSpriteRenderer;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.Color;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Random;
 
+import com.balloon.core.GameContext;
+import com.balloon.ranking.RankingCsvRepository;
+import com.balloon.ranking.RankingRecord;
+
 /**
- * GamePanel (refactored to match provided models):
- *  - UI는 렌더/입력만 담당
- *  - 시간/생명/점수/레벨은 GameState가 단일 소스
- *  - 정답 판정은 GameJudge가 수행, 아이템은 ItemSpawner+ItemEffectApplier로 즉시 반영
- *  - GameRules(싱글 규칙)로 레벨 클리어/게임오버 플로우 처리
- *  - Balloon 모델 시그니처( text,x,y,Kind,active )에 맞춤
+ * UI는 1번 코드 스타일 유지 + 게임 로직은 GameState/Rules/Judge 구조 그대로
  */
 public class GamePanel extends JPanel implements Showable {
 
-    // ====== 모델/로직 ======
+    // ====== Game / State / Item ======
     private final LevelConfig levelConfig = new LevelConfig();
     private final GameState state = new GameState(levelConfig);
     private final ItemSpawner spawner = new ItemSpawner();
+
+    // 모델 풍선 리스트 (GameJudge에 넘기는 리스트)
+    private final List<Balloon> balloons = new ArrayList<>();
+
+    // 스코어 브레이크다운 (UI용 임시)
+    private int correctCount = 0;
+    private int wrongCount = 0;
+    private int wordScore = 0;  // 정답 1개당 10점
+    private int timeBonus = 0;  // 남은 시간 기반 보너스
+    private int itemBonus = 0;  // 아이템으로 인한 변화
 
     // UI 콜백을 제공하는 Applier (시간/토스트/필드 조작)
     private final ItemEffectApplier applier = new ItemEffectApplier(
             // TimeApi
             new ItemEffectApplier.TimeApi() {
-                @Override public void addSeconds(int delta) { state.addSeconds(delta); refreshHUD(); }
-                @Override public int getTimeLeft() { return state.getTimeLeft(); }
+                @Override
+                public void addSeconds(int delta) {
+                    state.addSeconds(delta);
+                    refreshHUD();
+                }
+
+                @Override
+                public int getTimeLeft() {
+                    return state.getTimeLeft();
+                }
             },
             // UiApi
             new ItemEffectApplier.UiApi() {
-                @Override public void showToast(String message) {
+                @Override
+                public void showToast(String message) {
                     GamePanel.this.showToast(message, new java.awt.Color(40, 180, 100));
                 }
-                @Override public void flashEffect(boolean positive) {
+
+                @Override
+                public void flashEffect(boolean positive) {
                     GamePanel.this.flash(positive);
                 }
             },
-
             // FieldApi
             new ItemEffectApplier.FieldApi() {
-                @Override public void addBalloons(int n) { addBalloons(n); revalidate(); repaint(); }
-                @Override public void removeBalloons(int n) { removeBalloons(n); repaint(); }
+                @Override
+                public void addBalloons(int n) {
+                    GamePanel.this.addBalloons(n);
+                }
+
+                @Override
+                public void removeBalloons(int n) {
+                    GamePanel.this.removeBalloons(n);
+                }
             }
     );
 
     // GameJudge(아이템 연동 버전)
     private final com.balloon.game.GameJudge judge = new com.balloon.game.GameJudge(spawner, applier);
 
-    // 싱글 규칙 구현체
-    private final GameRules rules = new com.balloon.game.SingleGameRules(state);
+    // GameRules 구현체 (싱글 모드 규칙)
+    private final GameRules rules = new SingleGameRules();
 
-    // 화면전환 라우터
+    // ====== UI 필드 ======
     private final ScreenRouter router;
 
-    // ====== UI 요소 ======
-    private final JLabel timeLabel = new JLabel();
-    private final JLabel scoreLabel = new JLabel();
-    private final JLabel playerLabel = new JLabel();
-    private final JLabel modeLabel   = new JLabel();
-    private final JLabel toastLabel  = new JLabel(" ", SwingConstants.CENTER);
-    private final JLabel overlayLabel= new JLabel(" ", SwingConstants.CENTER);
+    // 상단 HUD 라벨
+    private final JLabel timeLabel = new JLabel("Time: 0");
+    private final JLabel scoreLabel = new JLabel("Score: 0");
+    private final JLabel playerLabel = new JLabel("Player: -");
+    private final JLabel modeLabel = new JLabel("Mode: -");
 
+    // 중앙 단어 가이드(현재는 숨김)
+    private final JLabel wordLabel = new JLabel("", SwingConstants.CENTER);
+
+    // 토스트 / 오버레이
+    private final JLabel toastLabel = new JLabel(" ", SwingConstants.CENTER);
+    private final JLabel overlayLabel = new JLabel(" ", SwingConstants.CENTER);
+
+    // 입력 필드
     private final JTextField inputField = new JTextField();
-    private final Timer tickTimer;
-    private final Timer overlayTimer = new Timer(1200, e -> overlayLabel.setVisible(false));
 
-    // ====== 스프라이트/렌더 ======
-    private final PlayField playField = new PlayField();
-    private final BalloonSpriteRenderer renderer = new BalloonSpriteRenderer();
+    // 틱 타이머(1초) / 오버레이 off 타이머
+    private final javax.swing.Timer tickTimer;
+    private final javax.swing.Timer overlayTimer =
+            new javax.swing.Timer(1200, e -> overlayLabel.setVisible(false));
 
-    // 모델 풍선 리스트(판정용)
-    private final java.util.List<Balloon> balloons = new ArrayList<>();
+    // 중앙 플레이 영역(풍선 캔버스)
+    private final PlayField playField;
 
-    // UI 스프라이트 — 화면 렌더용. 각 스프라이트는 대응되는 Balloon 모델을 가진다
-    private final java.util.List<Sprite> sprites = new ArrayList<>();
+    // 렌더러
+    private final com.balloon.ui.render.BalloonSpriteRenderer renderer =
+            new com.balloon.ui.render.BalloonSpriteRenderer();
 
-    // 배경/집/하트
-    private BufferedImage bgImg, houseImg, heartImg;
+    // 배경 / 집 / 하트 이미지
+    private BufferedImage bgImg;
+    private BufferedImage houseImg;
+    private BufferedImage heartImg;
 
-    // 기타
+    // 기타 상태
     private volatile boolean navigatedAway = false;
     private boolean stageClearedThisRound = false;
+    private boolean resultShown = false;
+    public static int lastCompletedStage = 1;
+
+    // 중앙 가이드용 wordIndex (현재는 label 숨김)
+    private int wordIndex = 0;
+    private final List<String> words = List.of(
+            "apple", "orange", "banana", "grape", "melon",
+            "keyboard", "monitor", "java", "swing", "balloon",
+            "house", "safety", "ground", "landing", "rope",
+            "cloud", "river", "green", "delta", "timer",
+            "purple", "queen", "sun", "tree", "unity",
+            "water", "xenon", "youth", "zebra", "type"
+    );
+
+    // 전역 컨텍스트
+    private final GameContext ctx = GameContext.getInstance();
+
+    // HUD 활성 아이템 배지용 타이머(그냥 repaint만 돌리는 용도)
+    private final javax.swing.Timer hudTimer =
+            new javax.swing.Timer(200, e -> repaint());
+
+    private boolean caretOn = true;
 
     public GamePanel(ScreenRouter router) {
         this.router = router;
 
-        // ====== 루트 레이아웃 ======
+        // ========= 레이아웃/배경 =========
         setLayout(new BorderLayout());
         setOpaque(false);
 
-        // ====== HUD (상단) ======
-        JPanel hud = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
+        // ========= 상단 바 (좌: HUD, 우: 아이템 전설) =========
+        JPanel topBar = new JPanel(new BorderLayout());
+        topBar.setOpaque(false);
+
+        JPanel hud = new JPanel(new BorderLayout());
         hud.setOpaque(false);
-        for (JLabel l : new JLabel[]{ timeLabel, scoreLabel, playerLabel, modeLabel }) {
-            l.setForeground(Color.WHITE);
-        }
-        hud.add(timeLabel);
-        hud.add(scoreLabel);
-        hud.add(new JLabel(" | "));
-        hud.add(playerLabel);
-        hud.add(modeLabel);
-        add(hud, BorderLayout.NORTH);
 
-        // ====== 중앙: OverlayLayout (playField + overlayLabel만 겹치기) ======
-        JPanel center = new JPanel();
-        center.setOpaque(false);
-        center.setLayout(new OverlayLayout(center));
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
+        left.setOpaque(false);
 
-        // playField가 중앙을 가득 채우도록
-        playField.setOpaque(false);
-        playField.setAlignmentX(0.5f);
-        playField.setAlignmentY(0.5f);
-        playField.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        timeLabel.setForeground(Color.WHITE);
+        scoreLabel.setForeground(Color.WHITE);
+        playerLabel.setForeground(Color.WHITE);
+        modeLabel.setForeground(Color.WHITE);
 
-        // 큰 오버레이(성공/실패)
-        overlayLabel.setOpaque(false);
-        overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
-        overlayLabel.setAlignmentX(0.5f);
-        overlayLabel.setAlignmentY(0.5f);
-        overlayLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-        overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 42f));
-        overlayLabel.setForeground(new Color(255, 255, 160));
-        overlayLabel.setVisible(false);
-        overlayTimer.setRepeats(false);
+        left.add(timeLabel);
+        left.add(scoreLabel);
+        left.add(new JLabel(" | "));
+        left.add(playerLabel);
+        left.add(modeLabel);
+        hud.add(left, BorderLayout.WEST);
 
-        // 추가 순서: 바닥(playField) → 최상단(overlayLabel)
-        center.add(playField);
-        center.add(overlayLabel);
-        add(center, BorderLayout.CENTER);
+        JPanel legend = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 8));
+        legend.setOpaque(false);
 
-        // ====== 하단: 토스트 + 입력바 묶어서 SOUTH에 배치 ======
-        JPanel south = new JPanel(new BorderLayout());
-        south.setOpaque(false);
+        JLabel timeBadge = new JLabel("TIME ±5");
+        timeBadge.setForeground(new Color(255, 120, 120));
+        timeBadge.setFont(timeBadge.getFont().deriveFont(Font.BOLD, 12f));
 
-        // (1) 토스트: 입력창 바로 위에 얹기 (Pop/Miss/점수 노출)
-        toastLabel.setOpaque(false);
+        JLabel balloonBadge = new JLabel("BALLOON ±1");
+        balloonBadge.setForeground(new Color(120, 160, 255));
+        balloonBadge.setFont(balloonBadge.getFont().deriveFont(Font.BOLD, 12f));
+
+        JLabel legendTitle = new JLabel("Items:");
+        legendTitle.setForeground(new Color(235, 235, 235));
+        legendTitle.setFont(legendTitle.getFont().deriveFont(Font.PLAIN, 12f));
+
+        legend.add(legendTitle);
+        legend.add(timeBadge);
+        legend.add(balloonBadge);
+
+        topBar.add(hud, BorderLayout.WEST);
+        topBar.add(legend, BorderLayout.EAST);
+
+        add(topBar, BorderLayout.NORTH);
+
+        // ========= 중앙 플레이 영역 =========
+        playField = new PlayField();
+        playField.setLayout(new BorderLayout());
+        add(playField, BorderLayout.CENTER);
+
+        // 중앙 단어 라벨(지금은 숨김)
+        wordLabel.setFont(wordLabel.getFont().deriveFont(Font.BOLD, 36f));
+        wordLabel.setForeground(Color.WHITE);
+        playField.add(wordLabel, BorderLayout.CENTER);
+        wordLabel.setVisible(false);
+
+        // ========= 토스트 라벨 =========
+        toastLabel.setForeground(new Color(80, 120, 80));
+        toastLabel.setFont(toastLabel.getFont().deriveFont(Font.PLAIN, 16f));
         toastLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        toastLabel.setVerticalAlignment(SwingConstants.CENTER);
-        toastLabel.setForeground(new Color(200, 230, 200));
-        toastLabel.setFont(toastLabel.getFont().deriveFont(16f));
-        south.add(toastLabel, BorderLayout.NORTH);
+        playField.add(toastLabel, BorderLayout.SOUTH);
 
-        // (2) 입력바
-        JPanel inputBar = new JPanel(new BorderLayout());
-        inputBar.setBorder(BorderFactory.createEmptyBorder(8, 24, 16, 24));
+        // ========= 하단 입력바 =========
+        JPanel inputBar = new JPanel();
         inputBar.setOpaque(false);
+        inputBar.setBorder(BorderFactory.createEmptyBorder(8, 0, 12, 0));
+        inputBar.setLayout(new BoxLayout(inputBar, BoxLayout.X_AXIS));
 
-        inputField.setFont(inputField.getFont().deriveFont(Font.BOLD, 18f));
-        inputField.setColumns(18);
+        inputBar.add(Box.createHorizontalGlue());
+
+        JPanel inputRow = new JPanel(new BorderLayout());
+        inputRow.setOpaque(false);
+        int rowW = 480;
+        int rowH = 40;
+        inputRow.setPreferredSize(new Dimension(rowW, rowH));
+
+        inputField.setFont(inputField.getFont().deriveFont(Font.PLAIN, 18f));
         inputField.setBackground(Color.WHITE);
         inputField.setForeground(Color.BLACK);
         inputField.setCaretColor(Color.BLACK);
         inputField.setBorder(BorderFactory.createLineBorder(Color.BLACK, 3));
-        inputField.setPreferredSize(new Dimension(560, 34));
-        inputBar.add(inputField, BorderLayout.CENTER);
+        inputField.setPreferredSize(new Dimension(rowW - 60, rowH - 4));
+        inputRow.add(inputField, BorderLayout.CENTER);
 
         JLabel hint = new JLabel("타이핑 · Enter=확인 · Backspace=삭제 · Esc=지우기");
         hint.setForeground(new Color(200, 210, 230));
-        inputBar.add(hint, BorderLayout.EAST);
+        hint.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 0));
+        inputRow.add(hint, BorderLayout.EAST);
 
-        south.add(inputBar, BorderLayout.SOUTH);
-        add(south, BorderLayout.SOUTH);
+        inputBar.add(inputRow);
+        inputBar.add(Box.createHorizontalGlue());
+        add(inputBar, BorderLayout.SOUTH);
 
-        // ====== 입력/포커스/키 바인딩 ======
-        setupKeyBindings();
+        // ========= 오버레이 라벨 =========
+        overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 42f));
+        overlayLabel.setForeground(new Color(255, 255, 160));
+        overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
+        overlayLabel.setVisible(false);
+        playField.add(overlayLabel, BorderLayout.NORTH);
+        overlayTimer.setRepeats(false);
+
+        // ========= 입력/포커스 설정 =========
         setFocusable(true);
         setFocusTraversalKeysEnabled(false);
+        setupKeyBindings();
         SwingUtilities.invokeLater(this::grabFocusSafely);
+        playField.setFocusable(false);
+        wordLabel.setFocusable(false);
+        toastLabel.setFocusable(false);
 
-        // ====== 틱 타이머 (1초) ======
-        tickTimer = new Timer(1000, e -> {
+        // ========= 틱 타이머 (1초) =========
+        tickTimer = new javax.swing.Timer(1000, e -> {
+            if (resultShown) return;
             if (state.getTimeLeft() > 0) {
                 state.decreaseTime();
                 refreshHUD();
-                if (state.getTimeLeft() == 0 && !allCleared()) onStageFailed();
+                if (state.getTimeLeft() == 0 && !allCleared()) {
+                    onStageFailed();
+                }
             }
         });
 
-        // ====== 자산 로드/배경 ======
+        // ========= 이미지 로드 / 배경 =========
         heartImg = ImageAssets.load("heart.png");
         houseImg = ImageAssets.load("home.png");
         applyStageBackground(state.getLevel());
 
-        // ====== 초기 스폰 & HUD ======
-        spawnInitialBalloons(20);
+        // ========= 초기 풍선 생성 / HUD 세팅 =========
+        playField.spawnInitialBalloons();
         updateContextHud();
         refreshHUD();
+
+        // 타이머 시작
+        hudTimer.start();
+        tickTimer.start();
     }
 
-
-
-    // ====== 이벤트 ======
-    private void setupKeyBindings() {
-        inputField.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "submitField");
-        inputField.getActionMap().put("submitField", new AbstractAction() {
-            @Override public void actionPerformed(java.awt.event.ActionEvent e) { onEnter(); }
-        });
-        inputField.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "clearField");
-        inputField.getActionMap().put("clearField", new AbstractAction() {
-            @Override public void actionPerformed(java.awt.event.ActionEvent e) { inputField.setText(""); }
-        });
+    // --------------------------------------------------
+    //  paintComponent : 배경 PNG
+    // --------------------------------------------------
+    @Override
+    public Dimension getPreferredSize() {
+        return new Dimension(1280, 720);
     }
 
-    private void onEnter() {
-        String typed = inputField.getText().trim();
-        if (typed.isEmpty()) {
-            rules.onMiss();
-            refreshHUD();
-            return;
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        if (bgImg != null) {
+            g.drawImage(bgImg, 0, 0, getWidth(), getHeight(), this);
         }
+    }
 
-        boolean ok = judge.submit(balloons, typed, rules);
-        if (ok) {
-            removeFirstSpriteByWord(typed);
-            showToast("✓ Pop!", new Color(25, 155, 75));
+    // --------------------------------------------------
+    //  공통 유틸
+    // --------------------------------------------------
+    private void applyStageBackground(int stage) {
+        String bgName = switch (stage) {
+            case 1 -> "bg_level1.png";
+            case 2 -> "bg_level2.png";
+            default -> "bg_level3.png";
+        };
+        bgImg = ImageAssets.load(bgName);
+        repaint();
+    }
 
-            if (allCleared()) onStageCleared();
-        } else {
-            showToast("✗ Miss", new Color(190, 60, 60));
-            if (state.getLife() <= 0) {
-                onStageFailed();
-                return;
+    private String resolvePlayerName() {
+        String name = Session.getNickname();
+
+        if (name == null || name.isBlank()) {
+            try {
+                String fromCtx = (ctx != null) ? ctx.getPlayerName() : null;
+                if (fromCtx != null && !fromCtx.isBlank()) name = fromCtx;
+            } catch (Exception ignore) {
             }
         }
-        inputField.setText("");
-        refreshHUD();
+        if (name == null || name.isBlank()) name = "-";
+        return name;
     }
 
+    private void updateContextHud() {
+        String name = resolvePlayerName();
+        playerLabel.setText("Player: " + name);
 
-    // ====== HUD/UI ======
+        String mode = "-";
+        try {
+            String m = (ctx != null) ? String.valueOf(ctx.getMode()) : null;
+            if (m != null && !m.equalsIgnoreCase("null") && !m.isBlank()) mode = m;
+        } catch (Exception ignore) {
+        }
+        modeLabel.setText("Mode: " + mode);
+    }
+
     private void refreshHUD() {
         timeLabel.setText("Time: " + Math.max(0, state.getTimeLeft()));
         scoreLabel.setText("Score: " + state.getTotalScore());
         repaint();
     }
 
+    private void stopGameLoops() {
+        if (tickTimer != null && tickTimer.isRunning()) tickTimer.stop();
+        if (playField != null) playField.stop();
+    }
+
+    private void reloadStageBalloons() {
+        if (playField != null) {
+            balloons.clear();
+            playField.clearSprites();
+            playField.spawnInitialBalloons();
+        }
+    }
+
+    private void grabFocusSafely() {
+        inputField.requestFocusInWindow();
+        if (!tickTimer.isRunning()) tickTimer.start();
+    }
+
+    // --------------------------------------------------
+    //  Enter 처리 : GameJudge + GameState
+    // --------------------------------------------------
+    private void onEnter() {
+        String typed = inputField.getText().trim();
+
+        if (typed.isEmpty()) {
+            wrongCount++;
+            rules.onMiss();
+            showToast("✗ Miss", new Color(190, 60, 60));
+            refreshHUD();
+            playField.repaint();
+            if (state.getLife() <= 0) {
+                onStageFailed();
+            }
+            inputField.setText("");
+            return;
+        }
+
+        boolean ok = judge.submit(balloons, typed, rules);
+
+        if (ok) {
+            correctCount++;
+            wordScore += 10;
+
+            removeFirstByWord(typed);
+            showToast("✓ Pop!", new Color(25, 155, 75));
+
+            if (allCleared()) {
+                onStageCleared();
+            }
+        } else {
+            wrongCount++;
+            showToast("✗ Miss", new Color(190, 60, 60));
+            if (state.getLife() <= 0) {
+                onStageFailed();
+                inputField.setText("");
+                refreshHUD();
+                playField.repaint();
+                return;
+            }
+        }
+
+        inputField.setText("");
+        refreshHUD();
+        playField.repaint();
+    }
+
     private void showToast(String msg, Color color) {
         toastLabel.setForeground(color);
         toastLabel.setText(msg);
-        Timer t = new Timer(700, e -> toastLabel.setText(" "));
+        javax.swing.Timer t = new javax.swing.Timer(600, e -> toastLabel.setText(" "));
         t.setRepeats(false);
         t.start();
     }
@@ -265,101 +443,92 @@ public class GamePanel extends JPanel implements Showable {
         Color c = positive ? new Color(0xCCFFCC) : new Color(0xFFCCCC);
         Color old = getBackground();
         setBackground(c);
-        Timer t = new Timer(150, e -> setBackground(old));
+        javax.swing.Timer t = new javax.swing.Timer(150, e -> setBackground(old));
         t.setRepeats(false);
         t.start();
     }
 
-    private void updateContextHud() {
-        String name = Session.getNickname();
-        if (name == null || name.isBlank()) {
-            try {
-                String fromCtx = GameContext.getInstance().getPlayerName();
-                if (fromCtx != null && !fromCtx.isBlank()) name = fromCtx;
-            } catch (Exception ignore) {}
+    private static String norm(String s) {
+        if (s == null) return "";
+        s = s.trim();
+        return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFC);
+    }
+
+    private void removeFirstByWord(String word) {
+        String needle = norm(word);
+
+        playField.removeSpriteByWord(needle);
+
+        Iterator<Balloon> it = balloons.iterator();
+        while (it.hasNext()) {
+            Balloon b = it.next();
+            if (b.isActive() && norm(b.getWord()).equalsIgnoreCase(needle)) {
+                b.pop();
+                it.remove();
+                break;
+            }
         }
-        if (name == null || name.isBlank()) name = "-";
-        playerLabel.setText("Player: " + name);
-
-        String mode = "-";
-        try {
-            String m = String.valueOf(GameContext.getInstance().getMode());
-            if (m != null && !m.equalsIgnoreCase("null") && !m.isBlank()) mode = m;
-        } catch (Exception ignore) {}
-        modeLabel.setText("Mode: " + mode);
     }
 
-    private void grabFocusSafely() {
-        inputField.requestFocusInWindow();
-        if (!tickTimer.isRunning()) tickTimer.start();
+    private boolean allCleared() {
+        for (Balloon b : balloons) if (b.isActive()) return false;
+        return true;
     }
 
-    @Override public void onShown() { navigatedAway = false; grabFocusSafely(); updateContextHud(); }
-    public void onHidden() {
-        navigatedAway = true;
-        if (tickTimer.isRunning()) tickTimer.stop();
-        if (overlayTimer.isRunning()) overlayTimer.stop();
-    }
-
-    // ====== 스테이지/레벨 ======
+    // --------------------------------------------------
+    //  스테이지 / 결과
+    // --------------------------------------------------
     private void onStageCleared() {
         if (stageClearedThisRound) return;
         stageClearedThisRound = true;
 
-        tickTimer.stop();
+        stopGameLoops();
 
         int remain = Math.max(0, state.getTimeLeft());
-        int bonus  = remain * 10;
+        int bonus = remain * 10;
 
-        // 점수 누적
+        timeBonus += bonus;
         state.addRemainingTimeAsScore();
+        refreshHUD();
 
-        // 중앙 오버레이(큰 글자) + SOUTH 토스트(입력창 위)
         showOverlay("✔ SUCCESS!  +" + bonus + "점", new Color(110, 220, 110));
         showToast("남은 시간 " + remain + "초 → +" + bonus + "점!", new Color(255, 255, 150));
 
-        // HUD 즉시 갱신
-        refreshHUD();
+        lastCompletedStage = state.getLevel();
 
-        // 1초 뒤 다음 레벨로 이동
         new javax.swing.Timer(1000, e -> {
             state.nextLevel();
-            if (state.isGameOver()) { showResult(); return; }
+            if (state.isGameOver() || state.getLevel() > 3) {
+                showResult();
+                return;
+            }
 
             stageClearedThisRound = false;
             applyStageBackground(state.getLevel());
-            sprites.clear();
-            balloons.clear();
-            spawnInitialBalloons(20);
+            reloadStageBalloons();
             refreshHUD();
             showToast("Stage " + state.getLevel() + " Start!", new Color(100, 200, 100));
+
+            resultShown = false;
             tickTimer.restart();
-        }) {{ setRepeats(false); start(); }};
+            playField.start();
+        }) {{
+            setRepeats(false);
+            start();
+        }};
     }
-
-
 
     private void onStageFailed() {
-        if (tickTimer.isRunning()) tickTimer.stop();
-        showOverlay("✖ FAILED!  (Stage " + state.getLevel() + ")", new Color(230, 90, 90));
-        new Timer(500, e -> showResult()).start();
-    }
+        stopGameLoops();
 
-    private void showResult() {
-        if (navigatedAway) return;
-        double accuracy = 0.0; int correctCount = 0; int wrongCount = 0;
-        ResultData data = new ResultData(state.getTotalScore(), Math.max(0, state.getTimeLeft()), accuracy, correctCount, wrongCount);
-        ResultContext.set(data);
-        if (router != null) {
-            try {
-                Component c = router.get(ScreenId.RESULT);
-                if (c instanceof ResultScreen rs) rs.setResult(state.getTotalScore(), accuracy, Math.max(0, state.getTimeLeft()));
-                router.show(ScreenId.RESULT);
-            } catch (Exception ex) {
-                System.err.println("[GamePanel] navigate RESULT error: " + ex);
-                router.show(ScreenId.RESULT);
-            }
-        }
+        showOverlay("✖ FAILED!  (Stage " + state.getLevel() + ")", new Color(230, 90, 90));
+
+        javax.swing.Timer t = new javax.swing.Timer(600, e -> {
+            ((javax.swing.Timer) e.getSource()).stop();
+            showResult();
+        });
+        t.setRepeats(false);
+        t.start();
     }
 
     private void showOverlay(String text, Color color) {
@@ -369,204 +538,405 @@ public class GamePanel extends JPanel implements Showable {
         overlayTimer.restart();
     }
 
-    // ====== 필드/풍선 ======
+    private void showResult() {
+        if (resultShown) return;
+        resultShown = true;
+
+        stopGameLoops();
+
+        int remainTime = Math.max(0, state.getTimeLeft());
+        int totalScore = state.getTotalScore();
+        int totalTry = correctCount + wrongCount;
+        double acc = (totalTry > 0) ? (correctCount * 1.0 / totalTry) : 0.0;
+
+        ResultData data = new ResultData(totalScore, remainTime, acc, correctCount, wrongCount);
+        ResultContext.set(data);
+
+        double accuracyPercent = acc * 100.0;
+        saveRanking(totalScore, accuracyPercent, remainTime);
+
+        if (router != null) {
+            try {
+                Component c = router.get(ScreenId.RESULT);
+                if (c instanceof ResultScreen rs) {
+                    rs.setResult(totalScore, acc, remainTime);
+                    // setBreakdown 있는 버전 기준, 없으면 이 한 줄만 주석 처리
+                    //rs.setBreakdown(wordScore, timeBonus, 0, itemBonus);
+                }
+                router.show(ScreenId.RESULT);
+            } catch (Exception ex) {
+                System.err.println("[GamePanel] RESULT navigation error: " + ex);
+                router.show(ScreenId.RESULT);
+            }
+        }
+    }
+
+    @Override
+    public void onShown() {
+        navigatedAway = false;
+        grabFocusSafely();
+        updateContextHud();
+        if (!tickTimer.isRunning()) tickTimer.start();
+        playField.start();
+    }
+
+    public void onHidden() {
+        navigatedAway = true;
+        stopGameLoops();
+        if (overlayTimer.isRunning()) overlayTimer.stop();
+    }
+
+    // --------------------------------------------------
+    //  키 바인딩
+    // --------------------------------------------------
+    private void setupKeyBindings() {
+        inputField.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "submitField");
+        inputField.getActionMap().put("submitField", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                onEnter();
+            }
+        });
+
+        inputField.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "clearField");
+        inputField.getActionMap().put("clearField", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                inputField.setText("");
+            }
+        });
+    }
+
+    // --------------------------------------------------
+    //  ItemEffectApplier FieldApi에서 호출하는 풍선 추가/삭제
+    // --------------------------------------------------
+    private void addBalloons(int n) {
+        playField.addBalloons(n);
+    }
+
+    private void removeBalloons(int n) {
+        playField.removeBalloons(n);
+    }
+
+    // --------------------------------------------------
+    //  Skin → Balloon.Kind
+    // --------------------------------------------------
     private static Balloon.Kind toKind(Skin skin) {
         return switch (skin) {
-            case PURPLE, PINK -> Balloon.Kind.RED;   // 임의 매핑
+            case PURPLE, PINK -> Balloon.Kind.RED;
             case YELLOW, ORANGE -> Balloon.Kind.GREEN;
             case GREEN -> Balloon.Kind.BLUE;
         };
     }
 
-    private void spawnInitialBalloons(int count) {
-        String[] bank = { "도서관","고양이","운동장","한가람","바다빛","이야기","도전정신",
-                "자다","인터넷","병원","전문가","초롱빛","노력하다","택시","집","나라",
-                "달빛","별빛","산책","행복","용기","친구","추억","봄날","밤하늘" };
-        Skin[] skins = new Skin[]{ Skin.PURPLE, Skin.YELLOW, Skin.PINK, Skin.ORANGE, Skin.GREEN };
-
-        int W = Math.max(getWidth(), 900), H = Math.max(getHeight(), 600);
-        int centerX = W / 2;
-        int[] pattern = {3,4,5,6,5,4,3};
-        int s = Math.max(68, Math.min(92, (int)(W * 0.07)));
-        int gapX = (int)(s * 1.20), gapY = (int)(s * 0.95);
-        int topY = Math.max(110, playField.houseAnchor.y - (gapY * (pattern.length + 1)));
-
-        sprites.clear(); balloons.clear();
-        int idx = 0;
-        for (int r = 0; r < pattern.length && balloons.size() < count; r++) {
-            int n = pattern[r];
-            int y = topY + r * gapY;
-            int totalWidth = (n - 1) * gapX;
-            int startX = centerX - totalWidth / 2;
-            for (int c = 0; c < n && balloons.size() < count; c++) {
-                String word = bank[idx % bank.length];
-                Skin skin = skins[(idx + c) % skins.length];
-                BufferedImage img = BalloonSkins.of(skin);
-                int x = startX + c * gapX;
-
-                Balloon m = new Balloon(word, x, y, toKind(skin));
-                balloons.add(m);
-                sprites.add(new Sprite(m, img, x, y, s, s));
-                idx++;
-            }
-        }
-        repaint();
-    }
-
-    private void addBalloons(int n) {
-        int W = Math.max(getWidth(), 900);
-        int s = Math.max(68, Math.min(92, (int)(W * 0.07)));
-        int y = Math.max(80, playField.houseAnchor.y - 6 * s);
-        Skin[] skins = new Skin[]{ Skin.PURPLE, Skin.YELLOW, Skin.PINK, Skin.ORANGE, Skin.GREEN };
-        Random rnd = new Random();
-        String[] bank = {"보라","노랑","분홍","주황","초록","파랑","하양","검정"};
-        for (int i = 0; i < n; i++) {
-            String word = bank[rnd.nextInt(bank.length)] + (rnd.nextInt(90)+10);
-            Skin skin = skins[rnd.nextInt(skins.length)];
-            BufferedImage img = BalloonSkins.of(skin);
-            int x = 40 + rnd.nextInt(Math.max(1, getWidth() - 80));
-            Balloon m = new Balloon(word, x, y, toKind(skin));
-            balloons.add(m);
-            sprites.add(new Sprite(m, img, x, y, s, s));
-        }
-        revalidate();
-        repaint();
-    }
-
-    private void removeBalloons(int n) {
-        int removed = 0;
-        for (int i = sprites.size() - 1; i >= 0 && removed < n; i--) {
-            Sprite s = sprites.get(i);
-            if (s.model.isActive()) {
-                s.model.pop();
-                sprites.remove(i);
-                balloons.remove(s.model);
-                removed++;
-            }
-        }
-    }
-
-    // 입력 단어와 같은 풍선을 찾아 제거 (NFC/trim 기준으로 통일)
-    private static String norm(String s) {
-        if (s == null) return "";
-        s = s.trim();
-        return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFC);
-    }
-
-    private void removeFirstSpriteByWord(String word) {
-        String needle = norm(word);
-        for (int i = 0; i < sprites.size(); i++) {
-            if (norm(sprites.get(i).model.getWord()).equalsIgnoreCase(needle)) {
-                sprites.remove(i);
-                break;
-            }
-        }
-        for (Balloon b : balloons) {
-            if (b.isActive() && norm(b.getWord()).equalsIgnoreCase(needle)) {
-                b.pop();
-                balloons.remove(b);
-                break;
-            }
-        }
-    }
-
-
-    private boolean allCleared() { for (Balloon b : balloons) if (b.isActive()) return false; return true; }
-
-    // ====== 렌더 ======
-    private void applyStageBackground(int stage) {
-        String bgName = switch (stage) { case 1 -> "bg_level1.png"; case 2 -> "bg_level2.png"; default -> "bg_level3.png"; };
-        bgImg = ImageAssets.load(bgName);
-        repaint();
-    }
-
-    @Override protected void paintComponent(Graphics g) {
-        super.paintComponent(g);
-        Graphics2D g2 = (Graphics2D) g.create();
-        if (bgImg != null) g2.drawImage(bgImg, 0, 0, getWidth(), getHeight(), null);
-        g2.dispose();
-    }
-
-    // ====== 내부 컴포넌트 ======
+    // --------------------------------------------------
+    //  내부 클래스 : PlayField
+    // --------------------------------------------------
     private final class PlayField extends JPanel {
-        private final Timer frameTimer = new Timer(16, e -> repaint());
-        private final Point houseAnchor = new Point(0,0);
-        private Rectangle houseRect = new Rectangle(0,0,0,0);
+        private static final int DESIGN_W = 1280;
+        private static final int DESIGN_H = 720;
+
+        private final com.balloon.ui.render.BalloonSpriteRenderer renderer =
+                new com.balloon.ui.render.BalloonSpriteRenderer();
+        private final ArrayList<BalloonSprite> sprites = new ArrayList<>();
+        private final Random rnd = new Random();
+        private final javax.swing.Timer frameTimer;
+
+        private Rectangle houseRect = new Rectangle(0, 0, 0, 0);
+        private Point houseAnchor = new Point(0, 0);
 
         PlayField() {
             setOpaque(false);
-            SwingUtilities.invokeLater(() -> { layoutHouse(); repaint(); });
+
+            SwingUtilities.invokeLater(() -> {
+                layoutHouse();
+                spawnInitialBalloons();
+            });
+
+            frameTimer = new javax.swing.Timer(16, e -> repaint());
             frameTimer.start();
         }
 
         private void layoutHouse() {
-            int W = Math.max(getWidth(), 900);
-            int H = Math.max(getHeight(), 600);
+            int W = DESIGN_W;
+            int H = DESIGN_H;
+
             if (houseImg == null) houseImg = ImageAssets.load("home.png");
-            int hw = Math.max(90, (int)(W * 0.09));
-            int hh = (int)(hw * (houseImg.getHeight() / (double) houseImg.getWidth()));
-            int hx = W/2 - hw/2;
-            int hy = H - hh - 72;
+
+            int hw = 80;
+            int hh = 70;
+
+            int hx = W / 2 - hw / 2;
+            int hy = H - hh - 140;
+
             houseRect.setBounds(hx, hy, hw, hh);
-            houseAnchor.setLocation(hx + hw/2, hy + (int)(hh * 0.30));
+            houseAnchor.setLocation(hx + hw / 2, hy + (int) (hh * 0.30));
         }
 
-        @Override public void invalidate() {
-            super.invalidate();
-            SwingUtilities.invokeLater(() -> { if (getWidth() > 0) { layoutHouse(); repaint(); } });
-        }
+        private void spawnInitialBalloons() {
+            sprites.clear();
+            balloons.clear();
 
-        @Override protected void paintComponent(Graphics g) {
-            super.paintComponent(g);
-            Graphics2D g2 = (Graphics2D) g.create();
+            int W = DESIGN_W;
+            int centerX = W / 2;
 
-            if (houseImg != null) g2.drawImage(houseImg, houseRect.x, houseRect.y, houseRect.width, houseRect.height, null);
+            int s = 70;
+            int gapX = 90;
+            int gapY = 60;
 
-            // 줄
-            for (Sprite s : sprites) {
-                s.anchorX = houseAnchor.x; s.anchorY = houseAnchor.y;
-                renderer.renderLineOnly(g2, s.toSprite());
+            int[] pattern = {3, 4, 5, 6, 5, 4, 3};
+            int rows = pattern.length;
+
+            int margin = 12;
+            int bottomY = (houseRect != null && houseRect.height > 0)
+                    ? houseRect.y - s - margin
+                    : 300;
+            int topY = bottomY - (rows - 1) * gapY;
+
+            String[] bank = {
+                    "도서관", "고양이", "운동장", "한가람", "바다빛", "이야기", "도전정신",
+                    "자다", "인터넷", "병원", "전문가", "초롱빛", "노력하다", "택시", "집", "나라",
+                    "달빛", "별빛", "산책", "행복", "용기", "친구", "추억", "봄날", "밤하늘"
+            };
+
+            Skin[] skins = new Skin[]{Skin.PURPLE, Skin.YELLOW, Skin.PINK, Skin.ORANGE, Skin.GREEN};
+            int idx = 0;
+
+            for (int r = 0; r < rows; r++) {
+                int count = pattern[r];
+                int y = topY + r * gapY;
+
+                int totalWidth = (count - 1) * gapX;
+                int startX = centerX - totalWidth / 2;
+
+                for (int c = 0; c < count; c++) {
+                    Skin skin = skins[(idx + c) % skins.length];
+                    BufferedImage img = BalloonSkins.of(skin);
+                    int x = startX + c * gapX;
+
+                    String word = bank[idx % bank.length];
+
+                    Balloon m = new Balloon(word, x, y, toKind(skin));
+                    balloons.add(m);
+
+                    BalloonSprite b = new BalloonSprite(
+                            word,
+                            img,
+                            x, y,
+                            houseAnchor.x,
+                            houseAnchor.y
+                    );
+                    b.w = s;
+                    b.h = s;
+
+                    sprites.add(b);
+                    idx++;
+                }
             }
-            // 풍선
-            for (Sprite s : sprites) renderer.renderBalloonOnly(g2, s.toSprite());
+        }
 
-            drawHUD(g2);
-            g2.dispose();
+        private void clearSprites() {
+            sprites.clear();
+        }
+
+        private void drawLine(Graphics2D g2, BalloonSprite b) {
+            if (b == null || b.state == BalloonSprite.State.DEAD) return;
+
+            int ax = houseAnchor.x;
+            int ay = houseAnchor.y;
+            int bx = b.attachX();
+            int by = b.attachY();
+
+            int cx = (ax + bx) / 2;
+            int cy = Math.min(ay, by) - 40;
+
+            Stroke old = g2.getStroke();
+            Color oldC = g2.getColor();
+
+            g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.setColor(new Color(255, 255, 255, 220));
+            g2.draw(new java.awt.geom.QuadCurve2D.Float(ax, ay, cx, cy, bx, by));
+
+            g2.setStroke(old);
+            g2.setColor(oldC);
         }
 
         private void drawHUD(Graphics2D g2) {
             g2.setFont(new Font("Dialog", Font.BOLD, 18));
             g2.setColor(Color.WHITE);
             int x = 16, y = 28;
+
             g2.drawString("life:", x, y);
+
             int lifeCount = Math.max(0, Math.min(3, state.getLife()));
             int hx = x + 50;
-            for (int i = 0; i < lifeCount; i++) if (heartImg != null) g2.drawImage(heartImg, hx + i * 28, y - 18, 24, 24, null);
-            String timeStr = String.format("Time limit : %d m %02d s", Math.max(0, state.getTimeLeft())/60, Math.max(0, state.getTimeLeft())%60);
+            for (int i = 0; i < lifeCount; i++) {
+                if (heartImg != null) {
+                    g2.drawImage(heartImg, hx + i * 28, y - 18, 24, 24, null);
+                }
+            }
+
+            String timeStr = String.format("Time limit : %d m %02d s",
+                    Math.max(0, state.getTimeLeft()) / 60,
+                    Math.max(0, state.getTimeLeft()) % 60);
             g2.drawString(timeStr, x, y + 24);
         }
+
+        private void addBalloons(int n) {
+            int W = DESIGN_W;
+            int s = 70;
+            int y = Math.max(80, houseAnchor.y - 6 * s);
+
+            Skin[] skins = new Skin[]{Skin.PURPLE, Skin.YELLOW, Skin.PINK, Skin.ORANGE, Skin.GREEN};
+            String[] bank = {"보라", "노랑", "분홍", "주황", "초록", "파랑", "하양", "검정"};
+
+            for (int i = 0; i < n; i++) {
+                String word = bank[rnd.nextInt(bank.length)] + (rnd.nextInt(90) + 10);
+                Skin skin = skins[rnd.nextInt(skins.length)];
+                BufferedImage img = BalloonSkins.of(skin);
+                int x = 40 + rnd.nextInt(Math.max(1, W - 80));
+
+                Balloon m = new Balloon(word, x, y, toKind(skin));
+                balloons.add(m);
+
+                BalloonSprite b = new BalloonSprite(
+                        word,
+                        img,
+                        x, y,
+                        houseAnchor.x,
+                        houseAnchor.y
+                );
+                b.w = s;
+                b.h = s;
+                sprites.add(b);
+            }
+            revalidate();
+            repaint();
+        }
+
+        private void removeBalloons(int n) {
+            int removed = 0;
+            ListIterator<BalloonSprite> sit = sprites.listIterator(sprites.size());
+            while (sit.hasPrevious() && removed < n) {
+                BalloonSprite s = sit.previous();
+                sit.remove();
+                Iterator<Balloon> mit = balloons.iterator();
+                while (mit.hasNext()) {
+                    Balloon m = mit.next();
+                    if (m.isActive() && norm(m.getWord()).equalsIgnoreCase(norm(s.text))) {
+                        m.pop();
+                        mit.remove();
+                        break;
+                    }
+                }
+                removed++;
+            }
+            repaint();
+        }
+
+        private void removeSpriteByWord(String normWord) {
+            Iterator<BalloonSprite> it = sprites.iterator();
+            while (it.hasNext()) {
+                BalloonSprite s = it.next();
+                if (norm(s.text).equalsIgnoreCase(normWord)) {
+                    it.remove();
+                    break;
+                }
+            }
+        }
+
+        void stop() {
+            if (frameTimer != null && frameTimer.isRunning()) frameTimer.stop();
+        }
+
+        void start() {
+            if (frameTimer != null && !frameTimer.isRunning()) frameTimer.start();
+        }
+
+        @Override
+        public void invalidate() {
+            super.invalidate();
+            SwingUtilities.invokeLater(() -> {
+                if (getWidth() > 0) {
+                    layoutHouse();
+                    repaint();
+                }
+            });
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            final Graphics2D g2 = (Graphics2D) g.create();
+
+            for (var b : sprites) {
+                b.anchorX = houseAnchor.x;
+                b.anchorY = houseAnchor.y;
+                drawLine(g2, b);
+            }
+
+            if (houseImg != null) {
+                g2.drawImage(houseRect.width > 0 ? houseImg : houseImg,
+                        houseRect.x, houseRect.y, houseRect.width, houseRect.height, null);
+            }
+
+            for (var b : sprites) {
+                renderer.renderBalloonOnly(g2, b);
+            }
+
+            drawHUD(g2);
+
+            g2.dispose();
+        }
     }
 
-    // 스프라이트 ↔ 모델 어댑터
-    private static final class Sprite {
-        final Balloon model;
-        final BufferedImage img;
-        int x, y, w, h; int anchorX, anchorY;
-        Sprite(Balloon model, BufferedImage img, int x, int y, int w, int h) {
-            this.model = model; this.img = img; this.x = x; this.y = y; this.w = w; this.h = h;
-        }
-        BalloonSprite toSprite() {
-            BalloonSprite bs = new BalloonSprite(model.getWord(), img, x, y, anchorX, anchorY);
-            bs.w = w; bs.h = h; return bs;
-        }
-    }
-
-   // ====== 싱글 규칙 ======
+    // --------------------------------------------------
+    //  SingleGameRules : GameRules 구현
+    // --------------------------------------------------
     private final class SingleGameRules implements GameRules {
-        @Override public void onTick() { /* GamePanel의 tickTimer가 state.decreaseTime() 호출 */ }
-        @Override public void onPop(java.util.List<Balloon> bs) { /* 레벨 클리어는 GamePanel에서 allCleared()로 판단 */ }
-        @Override public void onMiss() { state.loseLife(); }
-        @Override public boolean isGameOver() { return state.isGameOver(); }
+        @Override
+        public void onTick() {
+        }
+
+        @Override
+        public void onPop(List<Balloon> bs) {
+        }
+
+        @Override
+        public void onMiss() {
+            state.loseLife();
+        }
+
+        @Override
+        public boolean isGameOver() {
+            return state.isGameOver();
+        }
     }
 
+    // --------------------------------------------------
+    //  랭킹 CSV 저장
+    // --------------------------------------------------
+    private void saveRanking(int finalScore, double accuracyPercent, int timeLeftSeconds) {
+        String playerName = resolvePlayerName();
+
+        String playedAt = LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+
+        RankingRecord record = new RankingRecord(
+                playerName,
+                finalScore,
+                accuracyPercent,
+                timeLeftSeconds,
+                playedAt
+        );
+
+        try {
+            RankingCsvRepository repo = new RankingCsvRepository();
+            // TODO: 실제 메서드 이름에 맞게 수정 (예: save(record), add(record) 등)
+            // repo.append(record);
+        } catch (Exception e) {
+            System.err.println("[GamePanel] saveRanking failed: " + e);
+        }
+    }
 }
+
