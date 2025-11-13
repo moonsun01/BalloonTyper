@@ -123,4 +123,34 @@ public class RankingCsvRepository {
             e.printStackTrace();
         }
     }
+
+    /**
+     * 한 개의 랭킹 기록을 CSV 파일 맨 끝에 추가로 저장한다.
+     * - 파일이 없으면 ensureExistsWithDummy()가 헤더와 더미 데이터를 먼저 만든다.
+     */
+    public void append(RankingRecord r) {
+        ensureExistsWithDummy(); // 파일/디렉터리 없으면 만들어두기
+
+        // name,score,accuracy,timeLeft,playedAt 순서로 한 줄 생성
+        String line = String.join(",",
+                r.getName(),
+                String.valueOf(r.getScore()),
+                String.valueOf(r.getAccuracy()),
+                String.valueOf(r.getTimeLeft()),
+                r.getPlayedAt()
+        );
+
+        try {
+            // CSV 맨 끝에 한 줄 추가(줄바꿈 포함)
+            Files.writeString(
+                    csvPath,
+                    System.lineSeparator() + line,
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.APPEND
+            );
+        } catch (IOException e) {
+            e.printStackTrace(); // 개발 단계에서는 콘솔로만 확인
+        }
+    }
+
 }

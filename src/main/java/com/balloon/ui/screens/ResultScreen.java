@@ -1,104 +1,220 @@
-package com.balloon.ui.screens;                                      // 결과 화면 패키지
+package com.balloon.ui.screens;
 
-import com.balloon.core.ScreenId;                                    // 화면 식별자(enum)
-import com.balloon.core.ScreenRouter;                                // 라우터
-import com.balloon.ranking.RankingCSV;                               // CSV 유틸
-import com.balloon.ranking.RankingEntry;                             // DTO
-import com.balloon.ui.theme.Theme;                                   // 테마(색/폰트)
-import javax.swing.*;                                                // 스윙 컴포넌트
-import java.awt.*;                                                   // 레이아웃/색
-// 결과 -> 랭킹 저장/이동 화면
+import com.balloon.core.ScreenId;
+import com.balloon.core.ScreenRouter;
 
-public class ResultScreen extends JPanel {                            // 패널 상속
-    private final ScreenRouter router;                                // 라우터 참조
-    private int score = 0;                                            // 최종 점수
-    private double accuracy = 0.0;                                    // 최종 정확도
-    private int timeLeft = 0;                                         // 남은 시간(초)
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import java.awt.*;
 
-    private final JLabel lScore = new JLabel("Score: 0");             // 점수 라벨
-    private final JLabel lAcc   = new JLabel("Accuracy: 0.00%");      // 정확도 라벨
-    private final JLabel lTime  = new JLabel("Time Left: 0s");        // 시간 라벨
+/**
+ * ResultScreen
+ * - 점수 브레이크다운(단어/시간/정확도/아이템/총점) 테이블 표시
+ * - GamePanel.showResult()에서 setResult()/setBreakdown()으로 값이 주입됨
+ */
+public class ResultScreen extends JPanel {
 
-    public ResultScreen(ScreenRouter router) {                        // 생성자
-        this.router = router;                                         // 라우터 저장
-        setLayout(new BorderLayout(Theme.gapMD(), Theme.gapMD()));    // 여백 포함 보더 레이아웃
-        setBackground(Theme.bgColor());                               // 배경색 적용
+    private final ScreenRouter router;
 
-        JLabel title = new JLabel("RESULT");                          // 상단 제목
-        title.setFont(Theme.h1());                                    // 큰 제목 폰트
-        title.setHorizontalAlignment(SwingConstants.CENTER);           // 가운데 정렬
-        add(title, BorderLayout.NORTH);                               // 상단 배치
+    // 점수 항목
+    private int wordScore;      // 단어 정답으로 얻은 점수
+    private int timeScore;      // 남은 시간 점수(= timeBonus)
+    private int accuracyScore;  // 정확도 환산 점수(없으면 0 유지)
+    private int itemBonus;      // 아이템 보너스 합
+    private int totalScore;     // 총점
 
-        JPanel center = new JPanel(new GridLayout(3,1,8,8));          // 중간 정보 영역
-        center.setOpaque(false);                                      // 부모 배경 사용
-        lScore.setFont(Theme.h2());                                   // 점수 폰트
-        lAcc.setFont(Theme.h2());                                     // 정확도 폰트
-        lTime.setFont(Theme.h2());                                    // 시간 폰트
-        center.add(lScore);                                           // 점수 라벨 추가
-        center.add(lAcc);                                             // 정확도 라벨 추가
-        center.add(lTime);                                            // 시간 라벨 추가
-        add(center, BorderLayout.CENTER);                             // 중앙 배치
+    // 별도 표시용(정확도 %)
+    private double accuracyPct; // 0~100 (%)
 
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.CENTER,  // 하단 버튼 영역
-                16, 16));                                             // 버튼 간격
-        bottom.setOpaque(false);                                      // 투명 처리
+    // UI
+    private JTable table;
+    private DefaultTableModel model;
+    private JLabel accLabel;
 
-        JButton btnSave = new JButton("이름 입력 후 랭킹 저장");          // 저장 버튼
-        JButton btnRanking = new JButton("랭킹 보러가기");              // 랭킹 이동 버튼
-        btnSave.setFont(Theme.body());                                // 버튼 폰트
-        btnRanking.setFont(Theme.body());                             // 버튼 폰트
-        btnRanking.setEnabled(false);                                 // 저장 전 비활성화
+    // 기본 폰트 유틸(Theme 없이 동작)
+    private static Font fontM() {
+        Font base = UIManager.getFont("Label.font");
+        if (base == null) base = new Font("Dialog", Font.PLAIN, 12);
+        return base.deriveFont(14f);
+    }
+    private static Font fontXL() {
+        Font base = UIManager.getFont("Label.font");
+        if (base == null) base = new Font("Dialog", Font.PLAIN, 12);
+        return base.deriveFont(Font.BOLD, 26f);
+    }
 
-        bottom.add(btnSave);                                          // 하단에 버튼 추가
-        bottom.add(btnRanking);                                       // 하단에 버튼 추가
-        add(bottom, BorderLayout.SOUTH);                              // 하단 배치
+    public ResultScreen(ScreenRouter router) {
+        this.router = router;
 
-        btnSave.addActionListener(e -> {                              // 저장 버튼 클릭 시
-            String name = JOptionPane.showInputDialog(                //  이름 입력 다이얼로그
-                    this,                                             //  부모
-                    "이름을 입력하세요(최대 16자):",                       //  메시지
-                    "랭킹 저장",                                       //  타이틀
-                    JOptionPane.PLAIN_MESSAGE);                       //  입력형
-            if (name == null) return;                                 //  취소 시 종료
-            name = name.trim();                                       //  공백 제거
-            if (name.isEmpty()) {                                     //  빈 문자열 방지
-                JOptionPane.showMessageDialog(this,                   //   경고
-                        "이름이 비어 있습니다.", "오류",
-                        JOptionPane.ERROR_MESSAGE);
-                return;                                               //   종료
+        // 초기값(0)이라도 화면은 뜨도록
+        readFromContextSafely();
+
+        setLayout(new BorderLayout());
+        setBackground(UIManager.getColor("Panel.background"));
+
+        // 상단 타이틀
+        JLabel title = new JLabel("RESULT", SwingConstants.CENTER);
+        title.setFont(fontXL());
+        title.setBorder(BorderFactory.createEmptyBorder(24, 0, 12, 0));
+        add(title, BorderLayout.NORTH);
+
+        // 중앙: 정확도% 라벨 + 테이블
+        JPanel center = new JPanel(new BorderLayout());
+        center.setOpaque(false);
+
+        accLabel = new JLabel("", SwingConstants.RIGHT);
+        accLabel.setBorder(BorderFactory.createEmptyBorder(0, 12, 8, 12));
+        accLabel.setFont(fontM());
+        center.add(accLabel, BorderLayout.NORTH);
+
+        table = buildBreakdownTable();
+        JScrollPane sp = new JScrollPane(table);
+        sp.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 12));
+        center.add(sp, BorderLayout.CENTER);
+
+        add(center, BorderLayout.CENTER);
+
+        // 하단 버튼
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 16));
+        south.setOpaque(false);
+
+        JButton toRanking = new JButton("랭킹 보기");
+        JButton retry     = new JButton("다시 하기");
+        JButton toMain    = new JButton("메인으로");
+
+        toRanking.addActionListener(e -> router.show(ScreenId.RANKING));
+        retry.addActionListener(e -> router.show(ScreenId.GAME));
+        toMain.addActionListener(e -> router.show(ScreenId.START));
+
+        south.add(toRanking);
+        south.add(retry);
+        south.add(toMain);
+
+        add(south, BorderLayout.SOUTH);
+
+        // 처음 표시 동기화
+        refreshUI();
+    }
+
+    // ---------------------------
+    // GamePanel에서 호출하는 메서드
+    // ---------------------------
+
+    /** 총점/정확도%/남은시간(=timeScore) 주입 */
+    public void setResult(int totalScore, double accuracyRatio, int timeLeft) {
+        this.totalScore  = totalScore;
+        this.accuracyPct = accuracyRatio * 100.0; // 0~1 → %
+        this.timeScore   = Math.max(0, timeLeft); // 남은 시간 점수
+
+        refreshUI();
+    }
+
+    /** 브레이크다운 주입: 단어점수, 남은시간점수, 정확도점수, 아이템보너스 */
+    public void setBreakdown(int wordScore, int timeBonus, int accuracyScore, int itemBonus) {
+        this.wordScore     = wordScore;
+        this.timeScore     = timeBonus;     // timeScore는 timeBonus와 동일 의미로 사용
+        this.accuracyScore = accuracyScore; // 정확도 점수(없으면 0)
+        this.itemBonus     = itemBonus;
+
+        // 총점 재계산(안전)
+        int sum = wordScore + timeScore + accuracyScore + itemBonus;
+        if (sum > 0) this.totalScore = sum;
+
+        refreshUI();
+    }
+
+    // ---------------------------
+
+    private JTable buildBreakdownTable() {
+        String[] cols = {"항목", "점수"};
+        Object[][] rows = {
+                {"단어 점수",      0},
+                {"남은 시간 점수", 0},
+                {"정확도 점수",    0},
+                {"아이템 보너스",  0},
+                {"총점",           0}
+        };
+
+        model = new DefaultTableModel(rows, cols) {
+            @Override public boolean isCellEditable(int r, int c) { return false; }
+            @Override public Class<?> getColumnClass(int columnIndex) {
+                return columnIndex == 1 ? Integer.class : String.class;
             }
-            if (name.length() > 16) name = name.substring(0,16);      //  길이 제한
+        };
 
-            RankingEntry entry = new RankingEntry(                     //  DTO 생성
-                    name,                                              //   이름
-                    score,                                             //   점수
-                    accuracy,                                          //   정확도
-                    timeLeft,                                          //   남은 시간
-                    System.currentTimeMillis()                         //   현재 시각
-            );                                                         //  DTO 끝
-            RankingCSV.append(entry);                                  //  CSV에 추가
-            System.out.println("[RankingCSV] saved: " + entry.name           //   (로그)
-                    + ", score=" + entry.score + ", acc=" + entry.accuracy);
+        JTable t = new JTable(model);
+        t.setRowHeight(28);
+        t.setFont(fontM());
+        t.getTableHeader().setFont(fontM().deriveFont(Font.BOLD));
+        t.setFillsViewportHeight(true);
 
-            JOptionPane.showMessageDialog(this,                               // 4) 저장 완료 안내
-                    "랭킹에 저장되었습니다!",
-                    "완료",
-                    JOptionPane.INFORMATION_MESSAGE);
+        // 총점 행 굵게
+        t.setDefaultRenderer(Object.class, new javax.swing.table.DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable tbl, Object v, boolean sel, boolean foc, int row, int col) {
+                Component c = super.getTableCellRendererComponent(tbl, v, sel, foc, row, col);
+                c.setFont(fontM());
+                if (row == tbl.getRowCount() - 1) {
+                    c.setFont(c.getFont().deriveFont(Font.BOLD));
+                }
+                return c;
+            }
+        });
 
-            btnRanking.setEnabled(true);                                      // 5) 버튼도 활성화(보조)
-            router.show(ScreenId.RANKING);                                //  이동 버튼 활성화
-        });                                                            // 저장 리스너 끝
+        return t;
+    }
 
-        btnRanking.addActionListener(e ->                              // 랭킹 이동 버튼
-                router.show(ScreenId.RANKING));                        //  랭킹 화면으로 전환
-    }                                                                  // 생성자 끝
+    /** 현재 필드값으로 라벨/테이블 갱신 */
+    private void refreshUI() {
+        if (accLabel != null) {
+            if (accuracyPct > 0) accLabel.setText(String.format("정확도: %.1f%%", accuracyPct));
+            else accLabel.setText("");
+        }
+        if (model != null) {
+            model.setValueAt(wordScore,     0, 1);
+            model.setValueAt(timeScore,     1, 1);
+            model.setValueAt(accuracyScore, 2, 1);
+            model.setValueAt(itemBonus,     3, 1);
 
-    public void setResult(int score, double accuracy, int timeLeft) {  // 외부에서 결과 주입
-        this.score = score;                                            // 점수 저장
-        this.accuracy = accuracy;                                      // 정확도 저장
-        this.timeLeft = timeLeft;                                      // 남은 시간 저장
-        lScore.setText("Score: " + score);                             // 라벨 반영
-        lAcc.setText(String.format("Accuracy: %.2f%%", accuracy));     // 라벨 반영
-        lTime.setText("Time Left: " + timeLeft + "s");                 // 라벨 반영
-    }                                                                  // setResult 끝
-}                                                                      // 클래스 끝
+            int sum = wordScore + timeScore + accuracyScore + itemBonus;
+            if (sum == 0) sum = totalScore; // 총점만 먼저 들어온 경우 보정
+            model.setValueAt(sum, 4, 1);
+            totalScore = sum;
+        }
+    }
+
+    /**
+     * System property에서 값 읽기(없으면 0).
+     * 나중에 GameContext/결과집계 객체로 교체 가능.
+     */
+    private void readFromContextSafely() {
+        try {
+            wordScore     = safeRead("WORD_SCORE");
+            timeScore     = safeRead("TIME_SCORE");
+            accuracyScore = safeRead("ACCURACY_SCORE");
+            itemBonus     = safeRead("ITEM_BONUS");
+            totalScore    = safeRead("TOTAL_SCORE");
+            accuracyPct   = safeReadDouble("ACCURACY_PCT"); // 이미 %로 들어있으면 그대로
+        } catch (Throwable ignore) {}
+
+        if (totalScore == 0) {
+            totalScore = wordScore + timeScore + accuracyScore + itemBonus;
+        }
+    }
+
+    private int safeRead(String key) {
+        try {
+            String v = System.getProperty(key);
+            if (v == null) return 0;
+            return Integer.parseInt(v.trim());
+        } catch (Throwable ignore) { return 0; }
+    }
+
+    private double safeReadDouble(String key) {
+        try {
+            String v = System.getProperty(key);
+            if (v == null) return 0;
+            return Double.parseDouble(v.trim());
+        } catch (Throwable ignore) { return 0; }
+    }
+}
