@@ -50,4 +50,10 @@ public class GameState {
         boolean clearedAll = (level > 3);
         return timeOut || noLife || clearedAll;
     }
+    // com/balloon/game/GameState.java
+    public void addTimeSeconds(int delta) {
+        // 음수/양수 모두 허용, 0 미만은 0으로 바운딩
+        timeLeft = Math.max(0, timeLeft + delta);
+    }
+
 }
