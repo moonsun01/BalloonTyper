@@ -9,6 +9,7 @@ import com.balloon.ui.screens.GamePanel;        // ui/screens/GamePanel.java
 import com.balloon.ui.RankingScreenUI;    // ui/theme/RankingScreenUI.java
 import com.balloon.ui.GuideScreenUI;
 import com.balloon.ui.ModeSelectScreenUI;
+import com.balloon.ui.screens.ResultScreen;
 
 import javax.swing.*;
 import java.awt.*;
@@ -22,7 +23,21 @@ public class Launcher {
         frame.setSize(1280, 720);
         frame.setLocationRelativeTo(null);
 
-        ScreenRouter router = new ScreenRouter(frame.getContentPane(), new CardLayout());
+
+
+        // ★ 1) 루트 패널을 직접 만들고, BorderLayout으로 전체 꽉 채우기
+        JPanel rootPanel = new JPanel(new CardLayout());
+        rootPanel.setBorder(null);                 // 여백 절대 없음
+        rootPanel.setOpaque(true);
+
+        frame.setContentPane(rootPanel);
+
+        // ★ 3) ScreenRouter는 rootPanel을 쓰도록
+        ScreenRouter router = new ScreenRouter(rootPanel, (CardLayout) rootPanel.getLayout());
+
+
+
+        //ScreenRouter router = new ScreenRouter(frame.getContentPane(), new CardLayout());
 
         // 화면 등록
         router.register(ScreenId.START,   new StartMenuUI(router));     // OK
@@ -30,6 +45,7 @@ public class Launcher {
         router.register(ScreenId.GAME,    new GamePanel(router));       // ★ 여기 수정: () → (router)
         router.register(ScreenId.GUIDE,   new GuideScreenUI(router));  // 임시 화면
         router.register(ScreenId.RANKING, new RankingScreenUI(router)); // ★ 여기 수정: () → (router)
+        router.register(ScreenId.RESULT,  new ResultScreen(router));  // ★ 이 줄 필수
 
         // 첫 화면
         router.show(ScreenId.START);

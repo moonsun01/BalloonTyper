@@ -81,6 +81,7 @@ public class StartMenuUI extends JPanel {
         rankBtn.addActionListener(e -> router.show(ScreenId.RANKING));
     }
 
+    //배경 꽉 채우기
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);

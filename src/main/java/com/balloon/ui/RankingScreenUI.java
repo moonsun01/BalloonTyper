@@ -53,7 +53,7 @@ public class RankingScreenUI extends JPanel implements Showable {
 
         // ===== 상단 바(제목 + 뒤로가기 버튼) =====
         JPanel top = new JPanel(new BorderLayout());
-        top.setBorder(BorderFactory.createEmptyBorder(16, 16, 8, 16));
+        top.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
         top.setBackground(getBackground()); // 부모 배경색과 동일
 
         JLabel title = new JLabel("RANKING");

@@ -82,7 +82,7 @@ public class RankingTableModel extends AbstractTableModel {
             case 3 -> r.getAccuracy();
             case 4 -> r.getTimeLeft();
             case 5 -> r.getPlayedAt();
-            default -> null;
+            default -> "";
         };
     }
 
