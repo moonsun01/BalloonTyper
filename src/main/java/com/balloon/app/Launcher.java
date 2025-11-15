@@ -23,12 +23,17 @@ public class Launcher {
         frame.setSize(1280, 720);
         frame.setLocationRelativeTo(null);
 
-
+// ★★★ 추가 1: 프레임/내용 영역 배경을 검정으로 통일 ★★★
+        frame.getContentPane().setBackground(Color.BLACK);
+        frame.setBackground(Color.BLACK);
 
         // ★ 1) 루트 패널을 직접 만들고, BorderLayout으로 전체 꽉 채우기
         JPanel rootPanel = new JPanel(new CardLayout());
         rootPanel.setBorder(null);                 // 여백 절대 없음
         rootPanel.setOpaque(true);
+
+        // ★★★ 추가 2: 루트 패널도 검정 배경 ★★★
+        rootPanel.setBackground(Color.BLACK);
 
         frame.setContentPane(rootPanel);
 

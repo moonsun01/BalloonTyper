@@ -1,6 +1,8 @@
 package com.balloon.items;
 
 import com.balloon.game.model.Balloon;
+import com.balloon.ui.skin.SecretItemSkin;
+
 
 import java.util.Optional;
 import java.util.Random;
@@ -26,12 +28,54 @@ public class ItemSpawner {
 
     public Optional<Item> maybeSpawnOnBalloonPop(Balloon popped) {
         if (popped == null) return Optional.empty();
-        if (!rollDrop()) return Optional.empty();
 
-        ItemKind kind = rollKind();
+        // ★ 1) Balloon에 붙어 있는 카테고리 확인
+        SecretItemSkin.ItemCategory cat = popped.getCategory();
+
+        // ★ 1-1) 카테고리가 NONE이면(=검정 글씨) 아이템 없음
+        if (cat == null || cat == SecretItemSkin.ItemCategory.NONE) {
+            return Optional.empty();
+        }
+
+        // ★ 2) TIME / BALLOON 카테고리는 100% 드랍 (확률 체크 안 함)
+        ItemKind kind = rollKindByCategory(cat);
+
         int x = Math.round(popped.getX());
         int y = Math.round(popped.getY());
         return Optional.of(new Item(kind, x, y));
+    }
+
+    private ItemKind rollKindByCategory(SecretItemSkin.ItemCategory category) {
+        if (category == SecretItemSkin.ItemCategory.TIME) {
+            // 빨간 글씨 → 시간 아이템(+5 또는 -3초)만
+            return rollTimeKind();
+        } else if (category == SecretItemSkin.ItemCategory.BALLOON) {
+            // 파란 글씨 → 풍선 아이템(+2 또는 -2개)만
+            return rollBalloonKind();
+        }
+
+        // 혹시 TRICK 같은 다른 카테고리를 쓸 일이 생기면 기존 로직 사용
+        return rollKind();
+    }
+
+    /** 시간 계열 아이템만 뽑기: TIME_PLUS_5 또는 TIME_MINUS_3 */
+    private ItemKind rollTimeKind() {
+        int sum = wTimePlus5 + wTimeMinus3;
+        if (sum <= 0) return ItemKind.TIME_PLUS_5;
+
+        int r = rnd.nextInt(sum);
+        if (r < wTimePlus5) return ItemKind.TIME_PLUS_5;
+        return ItemKind.TIME_MINUS_3;
+    }
+
+    /** 풍선 계열 아이템만 뽑기: BALLOON_PLUS_2 또는 BALLOON_MINUS_2 */
+    private ItemKind rollBalloonKind() {
+        int sum = wBalloonPlus2 + wBalloonMinus2;
+        if (sum <= 0) return ItemKind.BALLOON_PLUS_2;
+
+        int r = rnd.nextInt(sum);
+        if (r < wBalloonPlus2) return ItemKind.BALLOON_PLUS_2;
+        return ItemKind.BALLOON_MINUS_2;
     }
 
     private boolean rollDrop() {
