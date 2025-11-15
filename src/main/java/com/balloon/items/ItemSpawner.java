@@ -65,7 +65,7 @@ public class ItemSpawner {
 
         int r = rnd.nextInt(sum);
         if (r < wTimePlus5) return ItemKind.TIME_PLUS_5;
-        return ItemKind.TIME_MINUS_3;
+        return ItemKind.TIME_MINUS_5;
     }
 
     /** 풍선 계열 아이템만 뽑기: BALLOON_PLUS_2 또는 BALLOON_MINUS_2 */
@@ -89,7 +89,7 @@ public class ItemSpawner {
         int acc = 0;
 
         acc += wTimePlus5;      if (r < acc) return ItemKind.TIME_PLUS_5;
-        acc += wTimeMinus3;     if (r < acc) return ItemKind.TIME_MINUS_3;
+        acc += wTimeMinus3;     if (r < acc) return ItemKind.TIME_MINUS_5;
         acc += wBalloonPlus2;   if (r < acc) return ItemKind.BALLOON_PLUS_2;
         // 남은 케이스
         return ItemKind.BALLOON_MINUS_2;

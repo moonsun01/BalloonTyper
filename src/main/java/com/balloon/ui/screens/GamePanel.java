@@ -39,6 +39,8 @@ import com.balloon.game.NonRepeatingWordProvider;
  */
 public class GamePanel extends JPanel implements Showable {
 
+    private JLayeredPane layeredPane;
+
     // ====== Game / State / Item ======
     private final LevelConfig levelConfig = new LevelConfig();
     private final GameState state = new GameState(levelConfig);
@@ -69,6 +71,9 @@ public class GamePanel extends JPanel implements Showable {
     // ★ 추가: GamePanel이 처음 보여졌는지 여부
     private boolean firstShown = true;
 
+    private final JLabel itemToastLabel = new JLabel("", SwingConstants.CENTER);
+
+
     // ===== [RESULT OVERLAY] 게임 종료 후 SUCCESS/FAIL + SCORE 표시용 =====
     private JPanel resultOverlayPanel;   // 반투명 배경 패널
     private JLabel resultTitleLabel;     // "SUCCESS" / "FAIL"
@@ -96,7 +101,7 @@ public class GamePanel extends JPanel implements Showable {
             new ItemEffectApplier.UiApi() {
                 @Override
                 public void showToast(String message) {
-                    GamePanel.this.showToast(message, new java.awt.Color(40, 180, 100));
+                    GamePanel.this.showItemToast(message);
                 }
 
                 @Override
@@ -117,6 +122,17 @@ public class GamePanel extends JPanel implements Showable {
                 }
             }
     );
+
+    private void showItemToast(String msg) {
+        itemToastLabel.setText(msg);
+        itemToastLabel.setVisible(true);
+        itemToastLabel.repaint();   // 박스 포함해서 다시 그리기
+
+        javax.swing.Timer t = new javax.swing.Timer(800, e -> itemToastLabel.setVisible(false));
+        t.setRepeats(false);
+        t.start();
+    }
+
 
     // GameJudge(아이템 연동 버전)
     private final com.balloon.game.GameJudge judge = new com.balloon.game.GameJudge(spawner, applier);
@@ -202,8 +218,9 @@ public class GamePanel extends JPanel implements Showable {
 
         // ★★★ 전체 패널(게임 화면)의 레이아웃/배경 설정 ★★★
         setLayout(new BorderLayout());   // 위(HUD) / 가운데(PlayField) / 아래(입력창) 배치
-        setOpaque(true);                 // GamePanel이 직접 배경 이미지를 그림
-        setBackground(Color.BLACK);      // 혹시 bgImg가 null일 때 기본 배경색
+        //setOpaque(true);                 // GamePanel이 직접 배경 이미지를 그림
+        setOpaque(false);
+        //setBackground(Color.BLACK);      // 혹시 bgImg가 null일 때 기본 배경색
 
         // ====== 단어 로딩 (CSV + NonRepeating) ======
         List<String> wordList = CsvWordLoader.loadWords("/data/words.csv");
@@ -259,15 +276,44 @@ public class GamePanel extends JPanel implements Showable {
 
         add(topBar, BorderLayout.NORTH);
 
+//        // ========= 중앙 플레이 영역 =========
+//        playField = new PlayField();
+//        playField.setLayout(new BorderLayout());
+//        //add(playField, BorderLayout.CENTER);
+
+
         // ========= 중앙 플레이 영역 =========
         playField = new PlayField();
         playField.setLayout(new BorderLayout());
-        add(playField, BorderLayout.CENTER);
+
+// ========= layeredPane 생성 =========
+        JLayeredPane layeredPane = new JLayeredPane();
+        layeredPane.setLayout(null);
+        playField.setBounds(0, 0, 1280, 720);
+        layeredPane.add(playField, JLayeredPane.DEFAULT_LAYER); // playField는 기본 레이어에 추가
+
+// ========= itemToastLabel 추가 =========
+        int boxW = 420;   // 박스 가로 길이
+        int boxH = 70;    // 박스 세로 길이
+        int boxX = (1280 - boxW) / 2;  // 화면 가운데에 오도록 x 좌표 계산
+        int boxY = 260;                // 세로 위치(원래 250이었으니까 비슷하게)
+
+        itemToastLabel.setBounds(boxX, boxY, boxW, boxH);
+        layeredPane.add(itemToastLabel, Integer.valueOf(JLayeredPane.PALETTE_LAYER));
+
+
+        // ★★★★★ 중앙 wordLabel도 layeredPane의 위 레이어에 추가 ★★★★★
+        wordLabel.setBounds(0, 160, 1280, 200);   // 화면 중앙쯤, 필요하면 Y값 수정 가능
+        wordLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        layeredPane.add(wordLabel, Integer.valueOf(JLayeredPane.MODAL_LAYER));
+
+        add(layeredPane, BorderLayout.CENTER);
+
 
         // 중앙 단어 라벨(지금은 숨김)
         wordLabel.setFont(wordLabel.getFont().deriveFont(Font.BOLD, 36f));
         wordLabel.setForeground(Color.WHITE);
-        playField.add(wordLabel, BorderLayout.CENTER);
+        //playField.add(wordLabel, BorderLayout.CENTER);
         wordLabel.setVisible(false);
 
         // ========= 토스트 라벨 =========
@@ -275,6 +321,9 @@ public class GamePanel extends JPanel implements Showable {
         toastLabel.setFont(toastLabel.getFont().deriveFont(Font.PLAIN, 16f));
         toastLabel.setHorizontalAlignment(SwingConstants.CENTER);
         playField.add(toastLabel, BorderLayout.SOUTH);
+
+
+
 
         // ========= 하단 입력바 =========
         // 하단 입력바 (가운데 정렬)
@@ -310,15 +359,6 @@ public class GamePanel extends JPanel implements Showable {
 
         add(inputBar, BorderLayout.SOUTH);
 
-//        // ========= 오버레이 라벨 =========
-//        overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 42f));
-//        overlayLabel.setForeground(new Color(255, 255, 160));
-//        overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
-//        overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
-//        overlayLabel.setVisible(false);
-//        playField.add(overlayLabel, BorderLayout.NORTH);
-//        overlayTimer.setRepeats(false);
-
         // ========= 오버레이 라벨 (SUCCESS / FAIL + SCORE) =========
         // ※ 기존 초록 SUCCESS 대신, 중앙에 크게 뜨는 결과창 역할만 담당
         overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 42f));
@@ -328,7 +368,7 @@ public class GamePanel extends JPanel implements Showable {
 
         // HTML을 써서 두 줄(제목 + 점수)을 중앙 정렬로 표현할 거라
         // 여기서는 기본 색만 일단 흰색으로
-        overlayLabel.setForeground(Color.WHITE);
+        //overlayLabel.setForeground(Color.WHITE);
 
         // ★★★ 가장 중요: NORTH → CENTER로 변경 ★★★
         // 이제 중앙(CENTER)을 overlayLabel이 차지하게 만들기
@@ -337,6 +377,23 @@ public class GamePanel extends JPanel implements Showable {
         // 기존 overlayTimer는 더 이상 결과창에 쓰지 않을 거라서 일단 그대로 놔둬도 되고,
         // "다른 용도로 쓰고 있다면" 유지, 아니라면 아래 한 줄을 주석 처리해도 됨
         overlayTimer.setRepeats(false);
+
+        // ========= 아이템 토스트 라벨(아이템 효과 표시용) =========
+        itemToastLabel.setFont(new Font("Dialog", Font.BOLD, 32));
+        itemToastLabel.setForeground(new Color(255, 240, 180));
+
+// 🔹 배경 박스 보이게 만들기
+        itemToastLabel.setOpaque(true);  // 배경색이 실제로 그려지도록
+        itemToastLabel.setBackground(new Color(0, 0, 0, 180)); // 살짝 투명한 검정 박스
+
+// 🔹 안쪽 여백 + 테두리(선택)
+        itemToastLabel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(255, 255, 255, 200), 2),  // 흰 테두리
+                BorderFactory.createEmptyBorder(10, 20, 10, 20)                    // 안쪽 여백
+        ));
+
+        itemToastLabel.setVisible(false);
+        itemToastLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
 
         // ========= 입력/포커스 설정 =========
@@ -351,6 +408,9 @@ public class GamePanel extends JPanel implements Showable {
         // ========= 틱 타이머 (1초) =========
         tickTimer = new javax.swing.Timer(1000, e -> {
             if (resultShown) return;
+
+            // 🔥 인트로(레벨 안내) 떠 있는 동안에는 시간 줄이지 않기
+            if (levelIntroShowing) return;
 
             // ✅ 풍선이 이미 다 사라져 있으면, 시간 남았어도 바로 클리어 처리
             if (!stageClearedThisRound && allCleared()) {
@@ -395,12 +455,18 @@ public class GamePanel extends JPanel implements Showable {
         updateContextHud();
         refreshHUD();
 
+        // ★ 시작 시간 1초 보정 (지금 89라면 90으로 올려주기)
+        if (state.getLevel() == 1 && state.getTimeLeft() == 89) {
+            state.addSeconds(1);   // GameState 안에 이미 있는 메서드(아이템 효과에서도 쓰고 있음)
+            refreshHUD();          // HUD 라벨도 다시 갱신
+        }
+
         // 타이머 시작
         hudTimer.start();
 
         //tickTimer.start();
 
-        //showLevelIntroForCurrentStage();
+        showLevelIntroForCurrentStage();
     }
 
     // --------------------------------------------------
@@ -651,7 +717,7 @@ public class GamePanel extends JPanel implements Showable {
         totalScore += bonus;
         refreshHUD();
 
-        showOverlay("✔ SUCCESS!  +" + bonus + "점", new Color(110, 220, 110));
+        showOverlay("✔ SUCCESS!  +" + bonus + "점", Color.WHITE);
         showToast("남은 시간 " + remain + "초 → +" + bonus + "점!", new Color(255, 255, 150));
 
         lastCompletedStage = state.getLevel();
@@ -723,11 +789,27 @@ public class GamePanel extends JPanel implements Showable {
         wordLabel.setHorizontalAlignment(SwingConstants.CENTER);
         wordLabel.setVerticalAlignment(SwingConstants.CENTER);
 
-        // gray.png 위에 띄우고 싶으면 이렇게:
+        // ★★★ 여기서 회색 박스를 "조금 좁게" 스케일해서 사용 ★★★
         if (grayOverlayImg != null) {
-            wordLabel.setIcon(new ImageIcon(grayOverlayImg));
+            int panelW = getWidth();
+            // 👉 전체 폭의 45% 정도만 쓰도록 (너무 넓으면 0.4, 더 넓게는 0.5로 조절 가능)
+            int targetW = (panelW > 0) ? (int) (panelW * 0.45) : 550;
+
+            int origW = grayOverlayImg.getWidth();
+            int origH = grayOverlayImg.getHeight();
+            int targetH = (int) ((double) origH * targetW / origW);
+
+            Image scaled = grayOverlayImg.getScaledInstance(
+                    targetW,
+                    targetH,
+                    Image.SCALE_SMOOTH
+            );
+
+            wordLabel.setIcon(new ImageIcon(scaled));
             wordLabel.setHorizontalTextPosition(SwingConstants.CENTER);
             wordLabel.setVerticalTextPosition(SwingConstants.CENTER);
+            wordLabel.setOpaque(false);   // 아이콘 위에 글자만
+            wordLabel.setBackground(null);
         } else {
             // gray.png를 굳이 안 쓰고 싶으면 반투명 배경만
             wordLabel.setIcon(null);
@@ -740,40 +822,6 @@ public class GamePanel extends JPanel implements Showable {
         // 1.2초 뒤 overlayTimer가 호출되어 wordLabel을 다시 숨김
         overlayTimer.restart();
     }
-
-
-//    private void showResult() {
-//        if (resultShown) return;
-//        resultShown = true;
-//
-//        stopGameLoops();
-//
-//        int remainTime = Math.max(0, state.getTimeLeft());
-//        //int totalScore = state.getTotalScore();
-//        int total = totalScore;
-//        int totalTry = correctCount + wrongCount;
-//        double acc = (totalTry > 0) ? (correctCount * 1.0 / totalTry) : 0.0;
-//
-//        ResultData data = new ResultData(totalScore, remainTime, acc, correctCount, wrongCount);
-//        ResultContext.set(data);
-//
-//        double accuracyPercent = acc * 10.0;
-//        saveRanking(totalScore, accuracyPercent, remainTime);
-//
-//        if (router != null) {
-//            try {
-//                Component c = router.get(ScreenId.RESULT);
-//                if (c instanceof ResultScreen rs) {
-//                    rs.setResult(totalScore, acc, remainTime);
-//                    rs.setBreakdown(wordScore, timeBonus, 0, itemBonus);
-//                }
-//                router.show(ScreenId.RESULT);
-//            } catch (Exception ex) {
-//                System.err.println("[GamePanel] RESULT navigation error: " + ex);
-//                router.show(ScreenId.RESULT);
-//            }
-//        }
-//    }
 
     /**
      * 게임이 끝났을 때(SUCCESS or FAIL) 중앙에 결과를 보여주고
@@ -824,7 +872,7 @@ public class GamePanel extends JPanel implements Showable {
 
         // 약간 깔끔하게 보이도록 토스트/오버레이 정리
         toastLabel.setText(" ");
-        overlayLabel.setVisible(false);
+        //overlayLabel.setVisible(false);
 
         // 3초 뒤 RANKING 화면으로 이동
         new javax.swing.Timer(3000, e -> {
@@ -876,7 +924,7 @@ public class GamePanel extends JPanel implements Showable {
         if (!tickTimer.isRunning()) {
             tickTimer.start();
         }
-        playField.start();
+        //playField.start();
 
         grabFocusSafely();
     }
@@ -1348,6 +1396,8 @@ public class GamePanel extends JPanel implements Showable {
         // ★ 현재 레벨의 제한시간 안내를 gray.png 위에 띄우기
         private void showLevelIntroForCurrentStage() {
             levelIntroShowing = true;
+            tickTimer.stop();       // ★ 여기가 핵심!
+            playField.stop();       // 풍선 움직임도 중지
 
             // 현재 레벨의 남은 시간으로 "1 m 30 s" 형식 만들기
             int sec = Math.max(0, state.getTimeLeft());
@@ -1387,21 +1437,31 @@ public class GamePanel extends JPanel implements Showable {
             levelIntroTimer.restart();
         }
 
-        private void hideLevelIntro() {
+    private void hideLevelIntro() {
 
-            // ★ 인트로 종료 상태
-            levelIntroShowing = false;
+        // ★ 인트로가 이제 끝났다는 표시
+        levelIntroShowing = false;
 
-            // 라벨 초기화
-            wordLabel.setVisible(false);
-            wordLabel.setIcon(null);
-            wordLabel.setText("");
-            wordLabel.setOpaque(false);
-            wordLabel.setBackground(null);
+        // ★ 인트로 때 썼던 라벨 초기화
+        wordLabel.setVisible(false);
+        wordLabel.setIcon(null);
+        wordLabel.setText("");
+        wordLabel.setOpaque(false);
+        wordLabel.setBackground(null);
+
+        // ★★★ 인트로 종료 후 게임 시작 ★★★
+        playField.start();                   // 풍선 낙하 시작
+        if (!tickTimer.isRunning()) {
+            tickTimer.start();               // 시간 카운트 시작
         }
 
+        // ★ 포커스 다시 Player에게
+        grabFocusSafely();
+    }
 
-        // --------------------------------------------------
+
+
+    // --------------------------------------------------
         //  랭킹 CSV 저장
         // --------------------------------------------------
         private void saveRanking(int finalScore, double accuracyPercent, int timeLeftSeconds) {
