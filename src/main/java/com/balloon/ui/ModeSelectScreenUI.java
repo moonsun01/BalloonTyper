@@ -46,7 +46,8 @@ public class ModeSelectScreenUI extends JPanel {
 
         // 동작
         single.addActionListener(e -> router.show(ScreenId.GAME));                   // 싱글=현재 게임
-        dual.addActionListener(e -> router.show(ScreenId.RANKING));                  // 임시: 듀얼은 준비중 화면 대체 원하면 바꿔줘
+        dual.addActionListener(e -> router.show(ScreenId.VERSUS_GAME));
+        // 임시: 듀얼은 준비중 화면 대체 원하면 바꿔줘
         // ※ 듀얼을 나중에 구현하면 ScreenId.DUAL 같은 새 화면으로 연결하면 됨.
     }
 

@@ -10,6 +10,8 @@ import com.balloon.ui.RankingScreenUI;    // ui/theme/RankingScreenUI.java
 import com.balloon.ui.GuideScreenUI;
 import com.balloon.ui.ModeSelectScreenUI;
 import com.balloon.ui.screens.ResultScreen;
+import com.balloon.ui.screens.VersusGamePanel;   // [ADD]
+
 
 import javax.swing.*;
 import java.awt.*;
@@ -51,6 +53,9 @@ public class Launcher {
         router.register(ScreenId.GUIDE,   new GuideScreenUI(router));  // 임시 화면
         router.register(ScreenId.RANKING, new RankingScreenUI(router)); // ★ 여기 수정: () → (router)
         router.register(ScreenId.RESULT,  new ResultScreen(router));  // ★ 이 줄 필수
+
+        // [ADD] 2인용 게임 화면
+        router.register(ScreenId.VERSUS_GAME, new VersusGamePanel(router));
 
         // 첫 화면
         router.show(ScreenId.START);

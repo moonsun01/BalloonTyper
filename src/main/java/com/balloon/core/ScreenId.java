@@ -12,4 +12,7 @@ public final class ScreenId {
     public static final String GAME    = "GAME";
     public static final String RESULT  = "RESULT"; // ← 대문자로 통일
     public static final String MODE_SELECT = "MODE_SELECT";
+
+    // [ADD] 2인용(듀얼) 게임 화면
+    public static final String VERSUS_GAME = "VERSUS_GAME";
 }

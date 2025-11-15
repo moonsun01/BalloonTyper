@@ -11,6 +11,7 @@ import com.balloon.items.ItemSpawner;
 import com.balloon.ui.assets.BalloonSkins;
 import com.balloon.ui.assets.BalloonSkins.Skin;
 import com.balloon.ui.assets.ImageAssets;
+import com.balloon.ui.hud.HUDRenderer;
 import com.balloon.ui.skin.SecretItemSkin;
 
 import javax.swing.*;
@@ -271,7 +272,7 @@ public class GamePanel extends JPanel implements Showable {
         legend.add(timeBadge);
         legend.add(balloonBadge);
 
-        topBar.add(hud, BorderLayout.WEST);
+        //topBar.add(hud, BorderLayout.WEST);
         topBar.add(legend, BorderLayout.EAST);
 
         add(topBar, BorderLayout.NORTH);
@@ -1194,23 +1195,45 @@ public class GamePanel extends JPanel implements Showable {
         private void drawHUD(Graphics2D g2) {
             g2.setFont(new Font("Dialog", Font.BOLD, 18));
             g2.setColor(Color.WHITE);
-            int x = 16, y = 28;
 
-            g2.drawString("life:", x, y);
+            // 기준 좌표 + 줄 간격
+            int x = 18;
+            int baseY = 70;     // life 줄
+            int gap = 32;       // 줄 간격 (player / life / time / score 사이 거리)
+
+            // 0) Player : 맨 위 줄
+            //  - GamePanel에 이미 있는 resolvePlayerName() 재사용
+            String playerName = GamePanel.this.resolvePlayerName();
+            g2.drawString("Player : " + playerName, x, baseY - gap);
+
+            // 1) life 줄
+            int lifeY = baseY;
+            g2.drawString("life:", x, lifeY);
 
             int lifeCount = Math.max(0, Math.min(3, state.getLife()));
-            int hx = x + 50;
+            int hx = x + 60; // life: 뒤에서부터 하트 시작 위치
             for (int i = 0; i < lifeCount; i++) {
                 if (heartImg != null) {
-                    g2.drawImage(heartImg, hx + i * 28, y - 18, 24, 24, null);
+                    g2.drawImage(heartImg,
+                            hx + i * 32,   // 하트 간격 32px 정도
+                            lifeY - 18,    // 글자 기준 위로 약간 올리기
+                            24, 24,
+                            null);
                 }
             }
 
+            // 2) time 줄
             String timeStr = String.format("Time limit : %d m %02d s",
                     Math.max(0, state.getTimeLeft()) / 60,
                     Math.max(0, state.getTimeLeft()) % 60);
-            g2.drawString(timeStr, x, y + 24);
+            g2.drawString(timeStr, x, baseY + gap);
+
+            // 3) score 줄
+            //  - 점수는 GamePanel의 totalScore 필드에 누적되고 있음
+            int score = GamePanel.this.totalScore;
+            g2.drawString("Score : " + score, x, baseY + 2 * gap);
         }
+
 
         private void addBalloons(int n) {
             int W = DESIGN_W;
@@ -1344,98 +1367,98 @@ public class GamePanel extends JPanel implements Showable {
 
 
     // --------------------------------------------------
-        //  SingleGameRules : GameRules 구현
-        // --------------------------------------------------
-        private final class SingleGameRules implements GameRules {
-            @Override
-            public void onTick() {
-            }
+    //  SingleGameRules : GameRules 구현
+    // --------------------------------------------------
+    private final class SingleGameRules implements GameRules {
+        @Override
+        public void onTick() {
+        }
 
-            @Override
-            public void onPop(List<Balloon> bs) {
-            }
+        @Override
+        public void onPop(List<Balloon> bs) {
+        }
 
-            @Override
-            public void onMiss() {
-                state.loseLife();
-            }
+        @Override
+        public void onMiss() {
+            state.loseLife();
+        }
 
-            @Override
-            public boolean isGameOver() {
-                return state.isGameOver();
-            }
+        @Override
+        public boolean isGameOver() {
+            return state.isGameOver();
+        }
+    }
+
+
+    // ★ gray.png를 적당히 축소해서 wordLabel 아이콘으로 설정하는 공통 함수
+    private void applyGrayOverlayIcon() {
+        if (grayOverlayImg == null) return;
+
+        // 1) 기준 폭 계산: 화면 폭의 약 70% 정도 (원하면 0.6, 0.8 등으로 조절 가능)
+        int panelW = getWidth();
+        int targetW = (panelW > 0) ? (int) (panelW * 0.7) : 800; // 화면 크기 없으면 기본 800
+
+        // 2) 원본 비율 유지하면서 높이 계산
+        int origW = grayOverlayImg.getWidth();
+        int origH = grayOverlayImg.getHeight();
+        int targetH = (int) ((double) origH * targetW / origW);
+
+        // 3) 부드럽게 스케일링
+        Image scaled = grayOverlayImg.getScaledInstance(
+                targetW,
+                targetH,
+                Image.SCALE_SMOOTH
+        );
+
+        // 4) wordLabel에 적용
+        wordLabel.setIcon(new ImageIcon(scaled));
+        wordLabel.setHorizontalTextPosition(SwingConstants.CENTER);
+        wordLabel.setVerticalTextPosition(SwingConstants.CENTER);
+    }
+
+    // ★ 현재 레벨의 제한시간 안내를 gray.png 위에 띄우기
+    private void showLevelIntroForCurrentStage() {
+        levelIntroShowing = true;
+        tickTimer.stop();       // ★ 여기가 핵심!
+        playField.stop();       // 풍선 움직임도 중지
+
+        // 현재 레벨의 남은 시간으로 "1 m 30 s" 형식 만들기
+        int sec = Math.max(0, state.getTimeLeft());
+        int m = sec / 60;
+        int s = sec % 60;
+        String timeStr = String.format("%d m %02d s", m, s);
+
+        int level = state.getLevel(); // ★ 현재 레벨
+
+        String html =
+                "<html><div style='text-align:center;'>" +
+                        "<span style='font-size:28px; font-weight:bold;'>Level " + level + "</span><br/><br/>" +
+                        "제한시간 안에 단어를 모두 입력하세요!<br/>" +
+                        "<span style='font-size:24px;'>time : " + timeStr + "</span>" +
+                        "</div></html>";
+
+        wordLabel.setText(html);
+        wordLabel.setForeground(Color.WHITE);
+        wordLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        wordLabel.setVerticalAlignment(SwingConstants.CENTER);
+
+        // ★ 회색 박스를 적당한 크기로 축소해서 중앙에 표시
+        if (grayOverlayImg != null) {
+            applyGrayOverlayIcon();   // ← 새로 만든 함수 사용
+        } else {
+            // 혹시 gray.png 로딩 실패했을 때 대비
+            wordLabel.setIcon(null);
+            wordLabel.setOpaque(true);
+            wordLabel.setBackground(new Color(0, 0, 0, 140));
         }
 
 
-        // ★ gray.png를 적당히 축소해서 wordLabel 아이콘으로 설정하는 공통 함수
-        private void applyGrayOverlayIcon() {
-            if (grayOverlayImg == null) return;
+        // 입력 박스 등은 그대로 두고 가운데에만 띄움
+        wordLabel.setVisible(true);
 
-            // 1) 기준 폭 계산: 화면 폭의 약 70% 정도 (원하면 0.6, 0.8 등으로 조절 가능)
-            int panelW = getWidth();
-            int targetW = (panelW > 0) ? (int) (panelW * 0.7) : 800; // 화면 크기 없으면 기본 800
-
-            // 2) 원본 비율 유지하면서 높이 계산
-            int origW = grayOverlayImg.getWidth();
-            int origH = grayOverlayImg.getHeight();
-            int targetH = (int) ((double) origH * targetW / origW);
-
-            // 3) 부드럽게 스케일링
-            Image scaled = grayOverlayImg.getScaledInstance(
-                    targetW,
-                    targetH,
-                    Image.SCALE_SMOOTH
-            );
-
-            // 4) wordLabel에 적용
-            wordLabel.setIcon(new ImageIcon(scaled));
-            wordLabel.setHorizontalTextPosition(SwingConstants.CENTER);
-            wordLabel.setVerticalTextPosition(SwingConstants.CENTER);
-        }
-
-        // ★ 현재 레벨의 제한시간 안내를 gray.png 위에 띄우기
-        private void showLevelIntroForCurrentStage() {
-            levelIntroShowing = true;
-            tickTimer.stop();       // ★ 여기가 핵심!
-            playField.stop();       // 풍선 움직임도 중지
-
-            // 현재 레벨의 남은 시간으로 "1 m 30 s" 형식 만들기
-            int sec = Math.max(0, state.getTimeLeft());
-            int m = sec / 60;
-            int s = sec % 60;
-            String timeStr = String.format("%d m %02d s", m, s);
-
-            int level = state.getLevel(); // ★ 현재 레벨
-
-            String html =
-                    "<html><div style='text-align:center;'>" +
-                            "<span style='font-size:28px; font-weight:bold;'>Level " + level + "</span><br/><br/>" +
-                            "제한시간 안에 단어를 모두 입력하세요!<br/>" +
-                            "<span style='font-size:24px;'>time : " + timeStr + "</span>" +
-                            "</div></html>";
-
-            wordLabel.setText(html);
-            wordLabel.setForeground(Color.WHITE);
-            wordLabel.setHorizontalAlignment(SwingConstants.CENTER);
-            wordLabel.setVerticalAlignment(SwingConstants.CENTER);
-
-            // ★ 회색 박스를 적당한 크기로 축소해서 중앙에 표시
-            if (grayOverlayImg != null) {
-                applyGrayOverlayIcon();   // ← 새로 만든 함수 사용
-            } else {
-                // 혹시 gray.png 로딩 실패했을 때 대비
-                wordLabel.setIcon(null);
-                wordLabel.setOpaque(true);
-                wordLabel.setBackground(new Color(0, 0, 0, 140));
-            }
-
-
-            // 입력 박스 등은 그대로 두고 가운데에만 띄움
-            wordLabel.setVisible(true);
-
-            // 타이머 시작 (2초 뒤 levelIntroTimer가 실행되어 게임 시작)
-            levelIntroTimer.restart();
-        }
+        // 타이머 시작 (2초 뒤 levelIntroTimer가 실행되어 게임 시작)
+        levelIntroTimer.restart();
+    }
 
     private void hideLevelIntro() {
 
@@ -1462,28 +1485,27 @@ public class GamePanel extends JPanel implements Showable {
 
 
     // --------------------------------------------------
-        //  랭킹 CSV 저장
-        // --------------------------------------------------
-        private void saveRanking(int finalScore, double accuracyPercent, int timeLeftSeconds) {
-            String playerName = resolvePlayerName();
+    //  랭킹 CSV 저장
+    // --------------------------------------------------
+    private void saveRanking(int finalScore, double accuracyPercent, int timeLeftSeconds) {
+        String playerName = resolvePlayerName();
 
-            String playedAt = LocalDateTime.now()
-                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String playedAt = LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
 
-            RankingRecord record = new RankingRecord(
-                    playerName,
-                    finalScore,
-                    accuracyPercent,
-                    timeLeftSeconds,
-                    playedAt
-            );
+        RankingRecord record = new RankingRecord(
+                playerName,
+                finalScore,
+                accuracyPercent,
+                timeLeftSeconds,
+                playedAt
+        );
 
-            try {
-                RankingCsvRepository repo = new RankingCsvRepository();
-                repo.append(record);
-            } catch (Exception e) {
-                System.err.println("[GamePanel] saveRanking failed: " + e);
-            }
+        try {
+            RankingCsvRepository repo = new RankingCsvRepository();
+            repo.append(record);
+        } catch (Exception e) {
+            System.err.println("[GamePanel] saveRanking failed: " + e);
         }
     }
-
+}
