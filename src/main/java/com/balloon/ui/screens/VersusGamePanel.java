@@ -2,48 +2,73 @@ package com.balloon.ui.screens;
 
 import com.balloon.core.ScreenId;
 import com.balloon.core.ScreenRouter;
-import com.balloon.core.Showable;
 import com.balloon.core.Session;
-
+import com.balloon.core.Showable;
+import com.balloon.net.VersusClient;
 import com.balloon.ui.hud.HUDRenderer;
-
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
-
-
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
-/**
- * VersusGamePanel
- * - 2인용(듀얼) 게임 화면 뼈대
- * - 지금은 그냥 빈 하늘색 배경만 있고,
- *   나중에 풍선/집/HUD/WIN·LOSE를 채워 넣을 예정
- */
 public class VersusGamePanel extends JPanel implements Showable {
 
     private final ScreenRouter router;
 
     private final Image bgImage;
-    private String p1Name = "player1";  // 임시
-    private String p2Name = "player2";  // 임시
+    private String p1Name = "player1";
+    private String p2Name = "player2";
 
-    // [ADD] 닉네임 전용 폰트 (HUD_FONT보다 조금 크게)
+    // 풍선 PNG 5종
+    private final Image balloonGreen;
+    private final Image balloonOrange;
+    private final Image balloonPink;
+    private final Image balloonPurple;
+    private final Image balloonYellow;
+
+    // 집 PNG
+    private final Image houseImg =
+            new ImageIcon(getClass().getResource("/images/home.png")).getImage();
+
+    // 하단 입력창
+    private final JTextField inputField = new JTextField();
+
+    // 닉네임 폰트
     private static final Font NAME_FONT =
             HUDRenderer.HUD_FONT.deriveFont(
-                    HUDRenderer.HUD_FONT.getSize2D() + 12.0f   // +4 정도 키우기
+                    HUDRenderer.HUD_FONT.getSize2D() + 12.0f
             );
 
-    // [ADD] 듀얼 결과 상태
+    // 점수 (시간/라이프는 싱글 전용)
+    private int p1Score = 0;
+    private int p2Score = 0;
+
+    // 네트워크
+    private VersusClient netClient;
+    private String myRole = "P1";
+    private boolean started = false;
+    private boolean finished = false;
+
+    // 결과 상태
     private enum ResultState {
-        NONE,       // 아직 진행 중
-        P1_WIN,     // 왼쪽 승
-        P2_WIN,     // 오른쪽 승
-        DRAW        // 무승부 (필요하면 사용)
+        NONE, P1_WIN, P2_WIN, DRAW
     }
 
     private ResultState resultState = ResultState.NONE;
+
+    // 결과가 나온 뒤 RETRY/HOME 오버레이를 띄울지 여부
+    private boolean showRetryOverlay = false;
+
+    // [ADD] 마우스로 클릭할 영역(RETTRY, HOME)
+    private Rectangle retryRect = null;
+    private Rectangle homeRect  = null;
+
+    // 풍선 구조 3·4·5·6·5·4·3
+    private static final int[] ROW_STRUCTURE = {3, 4, 5, 6, 5, 4, 3};
 
     public VersusGamePanel(ScreenRouter router) {
         this.router = router;
@@ -51,253 +76,514 @@ public class VersusGamePanel extends JPanel implements Showable {
                 getClass().getResource("/images/DUAL_BG.png")
         ).getImage();
 
-        setBackground(new Color(167, 220, 255));
-        setPreferredSize(new Dimension(1280, 720));
-        setFocusable(true);
+        // 풍선 이미지 로드
+        balloonGreen  = new ImageIcon(getClass().getResource("/images/balloon_green.png")).getImage();
+        balloonOrange = new ImageIcon(getClass().getResource("/images/balloon_orange.png")).getImage();
+        balloonPink   = new ImageIcon(getClass().getResource("/images/balloon_pink.png")).getImage();
+        balloonPurple = new ImageIcon(getClass().getResource("/images/balloon_purple.png")).getImage();
+        balloonYellow = new ImageIcon(getClass().getResource("/images/balloon_yellow.png")).getImage();
 
         setBackground(new Color(167, 220, 255));
         setPreferredSize(new Dimension(1280, 720));
         setFocusable(true);
 
-        // [TEMP] 테스트용 키 리스너 (나중에 게임 로직 붙이면 제거/수정 가능)
-        addKeyListener(new KeyAdapter() {
+        // 레이아웃 + 하단 입력바
+        setLayout(new BorderLayout());
+
+        JPanel bottom = new JPanel();
+        bottom.setOpaque(false);
+        bottom.setBorder(BorderFactory.createEmptyBorder(0, 0, 16, 0));
+        bottom.setLayout(new BoxLayout(bottom, BoxLayout.X_AXIS));
+
+        bottom.add(Box.createHorizontalGlue());
+
+        inputField.setFont(new Font("Dialog", Font.PLAIN, 18));
+        inputField.setHorizontalAlignment(JTextField.CENTER);
+        inputField.setMaximumSize(new Dimension(420, 40));
+        inputField.setPreferredSize(new Dimension(420, 40));
+        inputField.setBorder(BorderFactory.createLineBorder(Color.BLACK, 3));
+
+        bottom.add(inputField);
+        bottom.add(Box.createHorizontalGlue());
+
+        add(bottom, BorderLayout.SOUTH);
+
+        // 엔터 → 타이핑 처리
+        inputField.addActionListener(e -> {
+            String typed = inputField.getText();
+            onEnterTyped(typed);
+            inputField.setText("");
+        });
+
+        // ★ inputField 에 키 리스너 달기
+        inputField.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
                 int code = e.getKeyCode();
 
-                // 숫자 1 → 왼쪽 승, 2 → 오른쪽 승, 3 → 무승부
                 if (code == KeyEvent.VK_1) {
-                    resultState = ResultState.P1_WIN;
-                    repaint();
+                    // 테스트: P1이 이긴 상황
+                    startResultSequence(ResultState.P1_WIN);
+
                 } else if (code == KeyEvent.VK_2) {
-                    resultState = ResultState.P2_WIN;
-                    repaint();
+                    // 테스트: P2가 이긴 상황
+                    startResultSequence(ResultState.P2_WIN);
+
                 } else if (code == KeyEvent.VK_3) {
-                    resultState = ResultState.DRAW;
-                    repaint();
-                }
-                // R : 결과 리셋(게임 진행 중 상태로)
-                else if (code == KeyEvent.VK_R) {
+                    // 테스트: 무승부
+                    startResultSequence(ResultState.DRAW);
+
+                } else if (code == KeyEvent.VK_R) {
                     resultState = ResultState.NONE;
+                    showRetryOverlay = false;
+                    finished = false;
                     repaint();
-                }
-                // H : 홈(START) 화면으로 이동
-                else if (code == KeyEvent.VK_H) {
+
+                } else if (code == KeyEvent.VK_H) {
                     resultState = ResultState.NONE;
+                    showRetryOverlay = false;
+                    finished = true;
                     router.show(ScreenId.START);
                 }
             }
         });
 
+
+
+
+        // [ADD] 결과 화면 클릭 처리 (RETRY / HOME)
+        addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                // ★ 결과가 안 났거나, 아직 오버레이 안 뜬 상태면 무시
+                if (resultState == ResultState.NONE || !showRetryOverlay) return;
+
+                Point p = e.getPoint();
+
+                if (retryRect != null && retryRect.contains(p)) {
+                    handleRetryClicked();
+                } else if (homeRect != null && homeRect.contains(p)) {
+                    handleHomeClicked();
+                }
+            }
+        });
+
+
+
     }
 
-    // [ADD] 여기!  ← 클래스 안, 생성자 아래, paintComponent 위
+
+    // 플레이어 이름 표시
     private void drawPlayerNames(Graphics2D g2, int w, int h) {
         g2.setColor(Color.BLACK);
-        g2.setFont(NAME_FONT); //닉네임은 더 큰 폰트 사용
+        g2.setFont(NAME_FONT);
 
-        // 공통 위쪽 정렬 Y 값
         int nameY = 40;
 
-        // 왼쪽 이름: 왼쪽 여백 20
         int leftX = 20;
         g2.drawString(p1Name, leftX, nameY);
 
-        // 오른쪽 이름: 오른쪽 여백 20을 기준으로 오른쪽 정렬
         FontMetrics fm = g2.getFontMetrics();
         int textWidth = fm.stringWidth(p2Name);
         int rightMargin = 20;
         int rightX = w - rightMargin - textWidth;
-
         g2.drawString(p2Name, rightX, nameY);
     }
 
-    // 집 + 받침대 그리기 (centerX 기준)
+    // 집 그리기
     private void drawHouseArea(Graphics2D g2, int centerX, int panelHeight) {
-        // 받침대
-        int baseWidth = 200;
-        int baseHeight = 20;
-        int baseY = panelHeight - 80;  // 화면 아래에서 조금 띄우기
+        int groundMargin = 60;
+        int baseY = panelHeight - groundMargin;
 
-        int baseX = centerX - baseWidth / 2;
+        double houseScale = 0.3; // 집 크기 비율
 
-        g2.setColor(Color.WHITE);
-        g2.fillRect(baseX, baseY, baseWidth, baseHeight);
-        g2.setColor(Color.BLACK);
-        g2.drawRect(baseX, baseY, baseWidth, baseHeight);
+        int origW = houseImg.getWidth(this);
+        int origH = houseImg.getHeight(this);
 
-        // 집
-        int houseWidth = 40;
-        int houseHeight = 32;
-        int houseX = centerX - houseWidth / 2;
-        int houseY = baseY - houseHeight;
+        int houseW = (int) (origW * houseScale);
+        int houseH = (int) (origH * houseScale);
 
-        // 집 몸통
-        g2.setColor(new Color(255, 220, 120));
-        g2.fillRect(houseX, houseY + 8, houseWidth, houseHeight - 8);
-        g2.setColor(Color.BLACK);
-        g2.drawRect(houseX, houseY + 8, houseWidth, houseHeight - 8);
+        int houseX = centerX - houseW / 2;
+        int houseY = baseY - houseH;
 
-        // 지붕
-        Polygon roof = new Polygon();
-        roof.addPoint(houseX - 4, houseY + 8);
-        roof.addPoint(houseX + houseWidth / 2, houseY);
-        roof.addPoint(houseX + houseWidth + 4, houseY + 8);
-
-        g2.setColor(new Color(255, 80, 80));
-        g2.fillPolygon(roof);
-        g2.setColor(Color.BLACK);
-        g2.drawPolygon(roof);
-
-        // 나중에 풍선 줄(anchor) 위치 잡을 때 houseY / centerX 사용 가능
+        g2.drawImage(houseImg, houseX, houseY, houseW, houseH, null);
     }
 
-    // 풍선 자리(원 + 줄) 간단히 여러 개 그리기
-    private void drawBalloonCluster(Graphics2D g2, int centerX, int panelHeight, boolean leftSide) {
-        int baseY = panelHeight - 80;  // 받침대 Y와 맞추기
-        int anchorY = baseY - 32;      // 집 지붕 위쪽쯤
+    // 풍선 PNG 랜덤 선택
+    private Image pickRandomBalloonImage() {
+        int r = (int) (Math.random() * 5);
+        return switch (r) {
+            case 0 -> balloonGreen;
+            case 1 -> balloonOrange;
+            case 2 -> balloonPink;
+            case 3 -> balloonPurple;
+            default -> balloonYellow;
+        };
+    }
+
+
+    // 풍선 좌표 계산
+    private List<Point> buildBalloonPositions(double anchorX, double anchorY) {
+        List<Point> pos = new ArrayList<>();
+
+        int rowCount = ROW_STRUCTURE.length;
+        int baseSpacingY = 65; //세로 간격
+        int baseSpacingX = 80; //가로 간격
+
+        int offsetDown = 30;      // 전체를 아래로 30px 내리기
+        int offsetLeft  = -30;    // 전체 왼쪽으로. 0보다 작으면 왼쪽, 크면 오른쪽
+
+        for (int r = 0; r < rowCount; r++) {
+            int count = ROW_STRUCTURE[r];
+
+            double totalWidth = (count - 1) * baseSpacingX;
+            double startX = anchorX - totalWidth / 2.0;
+
+            // ↓ 전체를 offsetDown 만큼 내려줌
+            double y = anchorY - r * baseSpacingY + offsetDown;
+
+            for (int i = 0; i < count; i++) {
+                double x = startX + i * baseSpacingX + offsetLeft;
+                pos.add(new Point((int) x, (int) y));
+            }
+        }
+        return pos;
+    }
+
+    // 풍선 클러스터 + 줄
+    private void drawBalloonCluster(Graphics2D g2,
+                                    List<Point> positions,
+                                    int centerX,
+                                    int panelHeight,
+                                    boolean leftSide) {
+
+        int groundMargin = 90;
+        int baseY = panelHeight - groundMargin;
+        int anchorY = baseY - 60; //집 지붕 위쪽 근처
+
+        int balloonSize = 65;
 
         g2.setStroke(new BasicStroke(1.5f));
 
-        // 10개 정도 간단히 배치 (실제 로직은 B팀이 BalloonSprite로 교체)
-        for (int i = 0; i < 10; i++) {
-            int offsetX = (i % 5) * 60 - 120;   // 좌우 벌어지게
-            int offsetY = (i / 5) * -60 - 40;   // 위로 올라가게
+        // 줄
+        g2.setColor(new Color(235, 235, 235));
+        for (Point p : positions) {
+            int bx = p.x;
+            int by = p.y;
 
-            int bx = centerX + offsetX;
-            int by = anchorY + offsetY;
+            g2.drawLine(centerX, anchorY,
+                    bx + balloonSize / 2,
+                    by + balloonSize);
+        }
+        // 2) 그 다음 풍선 PNG를 전부 그리기 → "앞" 레이어
+        for (Point p : positions) {
+            int bx = p.x;
+            int by = p.y;
 
-            // 줄
-            g2.setColor(new Color(240, 240, 240));
-            g2.drawLine(centerX, anchorY, bx + 16, by + 16);
-
-            // 풍선(간단한 원)
-            g2.setColor(new Color(255, 255, 255, 220));
-            g2.fillOval(bx, by, 32, 32);
-            g2.setColor(new Color(130, 130, 180));
-            g2.drawOval(bx, by, 32, 32);
+            Image img = pickRandomBalloonImage();
+            g2.drawImage(img, bx, by, balloonSize, balloonSize, null);
         }
     }
-
 
     // 화면에 들어올 때
     @Override
     public void onShown() {
-        // 포커스 먼저 잡아주고
-        SwingUtilities.invokeLater(this::requestFocusInWindow);
+        // ★ 결과 화면에서 돌아왔을 때를 대비해서 입력창 활성화/보이기
+        inputField.setEnabled(true);
+        inputField.setVisible(true);
 
-        // ★ Start 화면에서 저장해 둔 닉네임 가져오기
+        SwingUtilities.invokeLater(() -> inputField.requestFocusInWindow());
+
         String nameFromSession = Session.getNickname();
-
         if (nameFromSession == null || nameFromSession.isBlank()) {
-            p1Name = "player1";   // 아무것도 안 적었을 때 기본값
-        } else {
-            p1Name = nameFromSession;
+            nameFromSession = "player";
         }
 
-        // ★ 상대 이름은 일단 임시로 고정 (원하면 "player2" 등으로 바꿔도 됨)
-        p2Name = "COMPUTER";
+        p1Name = nameFromSession;
+        p2Name = "opponent";
+        repaint();
 
-        // 이름 바뀌었으니 다시 그리기
+        String host = JOptionPane.showInputDialog(this, "서버 IP를 입력하세요", "127.0.0.1");
+        if (host == null || host.isBlank()) {
+            host = "127.0.0.1";
+        }
+
+        try {
+            netClient = new VersusClient(host, 5555, nameFromSession);
+
+            Thread t = new Thread(this::networkLoop);
+            t.setDaemon(true);
+            t.start();
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(this, "서버 접속 실패: " + ex.getMessage());
+        }
+    }
+
+    private void networkLoop() {
+        try {
+            String line;
+            while ((line = netClient.readLine()) != null) {
+                final String msg = line.trim();
+                System.out.println("[CLIENT] << " + msg);
+
+                if (msg.startsWith("ROLE ")) {
+                    String role = msg.substring(5).trim();
+                    myRole = role;
+                } else if (msg.equals("START")) {
+                    SwingUtilities.invokeLater(() -> {
+                        started = true;
+                        repaint();
+                    });
+                } else if (msg.startsWith("POP ")) {
+                    String[] parts = msg.split(" ", 3);
+                    if (parts.length == 3) {
+                        String who = parts[1];
+                        String word = parts[2];
+                        SwingUtilities.invokeLater(() -> onRemotePop(who, word));
+                    }
+                } else if (msg.startsWith("RESULT")) {
+                    boolean isWin = msg.contains("WIN");
+                    SwingUtilities.invokeLater(() -> showResultOverlay(isWin));
+                    break;
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // 서버에서 POP 수신
+    private void onRemotePop(String who, String word) {
+        int scoreDelta = 10;
+
+        if ("P1".equals(who)) {
+            p1Score += scoreDelta;
+        } else if ("P2".equals(who)) {
+            p2Score += scoreDelta;
+        }
         repaint();
     }
 
-    // 2P HUD (점수만) 그리기
-    private void drawHud(Graphics2D g2, int w, int h) {
-        g2.setColor(Color.BLACK);
-        g2.setFont(HUDRenderer.HUD_FONT);
+//    // 서버에서 RESULT 수신
+//    private void showResultOverlay(boolean isWin) {
+//        if ("P1".equals(myRole)) {
+//            resultState = isWin ? ResultState.P1_WIN : ResultState.P2_WIN;
+//        } else {
+//            resultState = isWin ? ResultState.P2_WIN : ResultState.P1_WIN;
+//        }
+//
+//        // 1단계: WIN / LOSE만 먼저 그림
+//        showRetryOverlay = false;
+//        repaint();
+//
+//        // 2단계: 1초 뒤에 RETRY/HOME 오버레이 등장
+//        javax.swing.Timer t = new javax.swing.Timer(1000, e -> {
+//            showRetryOverlay = true;
+//            repaint();
+//            ((javax.swing.Timer) e.getSource()).stop();
+//        });
+//        t.setRepeats(false);
+//        t.start();
+//    }
 
+    // 서버에서 RESULT 수신했을 때 호출
+    private void showResultOverlay(boolean isWin) {
+        ResultState state;
 
-        int nameY   = 40;      // 이름 Y와 비슷한 높이
-        int lineGap = 22;
+        if ("P1".equals(myRole)) {
+            state = isWin ? ResultState.P1_WIN : ResultState.P2_WIN;
+        } else {
+            state = isWin ? ResultState.P2_WIN : ResultState.P1_WIN;
+        }
 
-        // ----- P1 SCORE (왼쪽 위) -----
-        int leftX   = 20;
-        int scoreY  = nameY + lineGap;
-
-        String p1ScoreText = "SCORE : 000";   // 지금은 더미 값
-
-        g2.drawString(p1ScoreText, leftX, scoreY);
-
-        // ----- P2 SCORE (오른쪽 위, 오른쪽 정렬) -----
-        String p2ScoreText = "SCORE : 000";
-
-        FontMetrics fm = g2.getFontMetrics();
-        int rightMargin = 20;
-        int p2ScoreX = w - rightMargin - fm.stringWidth(p2ScoreText);
-
-        g2.drawString(p2ScoreText, p2ScoreX, scoreY);
+        // 공통 연출 메서드 호출
+        startResultSequence(state);
     }
 
 
-    // [ADD] 결과 오버레이 (WIN / LOSE + 회색 배경)
+
+    // 내 풍선 하나 제거(임시: 점수만)
+    private void removeMyBalloon(String typedWord) {
+        int scoreDelta = 10;
+
+        if ("P1".equals(myRole)) {
+            p1Score += scoreDelta;
+        } else if ("P2".equals(myRole)) {
+            p2Score += scoreDelta;
+        }
+        repaint();
+    }
+
+    // 아직은 항상 false (나중에 진짜 풍선 리스트 만들 때 수정)
+    private boolean myAllCleared() {
+        return false;
+    }
+
+    // HUD(Score만)
+    private void drawHud(Graphics2D g2, int w, int h) {
+        g2.setFont(HUDRenderer.HUD_FONT);
+        g2.setColor(Color.BLACK);
+
+        FontMetrics fm = g2.getFontMetrics();
+        int baseY = 70;
+
+        String p1ScoreText = "Score : " + p1Score;
+        int leftX = 18;
+        g2.drawString(p1ScoreText, leftX, baseY);
+
+        String p2ScoreText = "Score : " + p2Score;
+        int rightMargin = 18;
+        int p2X = w - rightMargin - fm.stringWidth(p2ScoreText);
+        g2.drawString(p2ScoreText, p2X, baseY);
+    }
+
+    // 내가 엔터쳤을 때
+    private void onEnterTyped(String typedWord) {
+        if (!started || finished) return;
+
+        typedWord = typedWord.trim();
+        if (typedWord.isEmpty()) return;
+
+        removeMyBalloon(typedWord);
+
+        if (netClient != null) {
+            netClient.sendPop(typedWord);
+        }
+
+        if (myAllCleared() && !finished) {
+            finished = true;
+            if (netClient != null) netClient.sendFinish();
+        }
+    }
+
+    // 결과 오버레이
     private void drawResultOverlay(Graphics2D g2, int w, int h) {
-        if (resultState == ResultState.NONE) return; // 아직 게임 중이면 안 그림
+        if (resultState == ResultState.NONE) return;
 
-        // 반투명 회색 배경
-        Composite oldComp = g2.getComposite();
-        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.6f));
-        g2.setColor(Color.DARK_GRAY);
-        g2.fillRect(0, 0, w, h);
-        g2.setComposite(oldComp);
-
-        // 텍스트 색/폰트
-        g2.setColor(Color.WHITE);
         Font oldFont = g2.getFont();
         Font bigFont = NAME_FONT.deriveFont(NAME_FONT.getSize2D() + 8.0f);
         g2.setFont(bigFont);
+        FontMetrics fm = g2.getFontMetrics();
 
-        // 왼쪽/오른쪽 중심
         int centerLeftX  = w / 4;
         int centerRightX = w * 3 / 4;
         int centerY      = h / 2;
 
-        FontMetrics fm = g2.getFontMetrics();
-
         String leftText  = "";
         String rightText = "";
+        Color leftColor  = Color.BLACK;
+        Color rightColor = Color.BLACK;
 
         switch (resultState) {
             case P1_WIN -> {
                 leftText  = "WIN !";
                 rightText = "LOSE";
+                leftColor = Color.BLACK;
+                rightColor = new Color(255, 80, 80);
             }
             case P2_WIN -> {
                 leftText  = "LOSE";
                 rightText = "WIN !";
+                leftColor = new Color(255, 80, 80);
+                rightColor = Color.BLACK;
             }
             case DRAW -> {
                 leftText  = "DRAW";
                 rightText = "DRAW";
+                leftColor = rightColor = Color.BLACK;
             }
         }
 
         int leftW  = fm.stringWidth(leftText);
         int rightW = fm.stringWidth(rightText);
 
-        g2.drawString(leftText,  centerLeftX  - leftW / 2,  centerY);
-        g2.drawString(rightText, centerRightX - rightW / 2, centerY);
+        // ── 1단계: WIN / LOSE 텍스트만 (밝은 배경 위) ──
+        if (!showRetryOverlay) {
+            g2.setColor(leftColor);
+            g2.drawString(leftText, centerLeftX - leftW / 2, centerY);
 
-        // 아래쪽에 RETRY / HOME 안내 텍스트
-        String retryHome = "RETRY : R   /   HOME : H";
-        Font smallFont = HUDRenderer.HUD_FONT.deriveFont(HUDRenderer.HUD_FONT.getSize2D() + 2.0f);
-        g2.setFont(smallFont);
+            g2.setColor(rightColor);
+            g2.drawString(rightText, centerRightX - rightW / 2, centerY);
+
+            g2.setFont(oldFont);
+            return;
+        }
+
+        // ── 2단계: 화면 어둡게 덮기 ──
+        Composite oldComp = g2.getComposite();
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.6f));
+        g2.setColor(Color.DARK_GRAY);
+        g2.fillRect(0, 0, w, h);
+        g2.setComposite(oldComp);
+
+        // 어두운 배경 위에 다시 WIN / LOSE
+        g2.setFont(bigFont);
         fm = g2.getFontMetrics();
 
-        int msgW = fm.stringWidth(retryHome);
-        int msgX = (w - msgW) / 2;
-        int msgY = centerY + 80;
+        g2.setColor(leftColor);
+        g2.drawString(leftText, centerLeftX - leftW / 2, centerY);
 
-        g2.drawString(retryHome, msgX, msgY);
+        g2.setColor(rightColor);
+        g2.drawString(rightText, centerRightX - rightW / 2, centerY);
+
+        // ── RETRY? / HOME 텍스트 버튼 ──
+        String retryText = "RETRY";
+        String homeText  = "HOME";
+
+        Font buttonFont = HUDRenderer.HUD_FONT
+                .deriveFont(HUDRenderer.HUD_FONT.getSize2D() + 6.0f);
+        g2.setFont(buttonFont);
+        FontMetrics fmBtn = g2.getFontMetrics();
+
+        int buttonW = 200;
+        int buttonH = 60;
+        int gap = 40;                 // 두 버튼 사이 간격
+
+        int centerX = w / 2;
+        int btnTop = centerY + 70;    // WIN/LOSE 아래쪽 위치
+
+        int retryX = centerX - buttonW - gap / 2;  // 왼쪽 버튼
+        int homeX  = centerX + gap / 2;            // 오른쪽 버튼
+
+        Color btnBg = new Color(0, 0, 0, 150);     // 약간 어두운 배경색
+        g2.setStroke(new BasicStroke(3f));
+
+        // --- RETRY 버튼 ---
+        g2.setColor(btnBg);
+        g2.fillRoundRect(retryX, btnTop, buttonW, buttonH, 18, 18);
+        g2.setColor(Color.WHITE);
+        g2.drawRoundRect(retryX, btnTop, buttonW, buttonH, 18, 18);
+
+        int retryTextW = fmBtn.stringWidth(retryText);
+        int retryTextX = retryX + (buttonW - retryTextW) / 2;
+        int retryTextY = btnTop + (buttonH + fmBtn.getAscent()) / 2 - 4;
+        g2.drawString(retryText, retryTextX, retryTextY);
+
+        // --- HOME 버튼 ---
+        g2.setColor(btnBg);
+        g2.fillRoundRect(homeX, btnTop, buttonW, buttonH, 18, 18);
+        g2.setColor(Color.WHITE);
+        g2.drawRoundRect(homeX, btnTop, buttonW, buttonH, 18, 18);
+
+        int homeTextW = fmBtn.stringWidth(homeText);
+        int homeTextX = homeX + (buttonW - homeTextW) / 2;
+        int homeTextY = btnTop + (buttonH + fmBtn.getAscent()) / 2 - 4;
+        g2.drawString(homeText, homeTextX, homeTextY);
+
+        // 마우스 클릭 판정용 영역을 버튼 크기에 맞게 갱신
+        retryRect = new Rectangle(retryX, btnTop, buttonW, buttonH);
+        homeRect  = new Rectangle(homeX,  btnTop, buttonW, buttonH);
 
         g2.setFont(oldFont);
     }
 
 
-    // 화면에서 나갈 때
+
     @Override
     public void onHidden() {
-        // 아직 특별히 할 건 없음
+        // 아직 특별히 할 일 없음
     }
 
     @Override
@@ -308,27 +594,87 @@ public class VersusGamePanel extends JPanel implements Showable {
         int w = getWidth();
         int h = getHeight();
 
-        // 1) 배경 이미지 전체 깔기
         g2.drawImage(bgImage, 0, 0, w, h, this);
 
-        // 2) 플레이어 이름 그리기
         drawPlayerNames(g2, w, h);
         drawHud(g2, w, h);
 
-        // ===== 3) 왼쪽/오른쪽 집 + 받침대 그리기 =====
-        int centerLeft  = w / 4;
+        int centerLeft = w / 4;
         int centerRight = w * 3 / 4;
 
-        drawHouseArea(g2, centerLeft, h);   // P1 집
-        drawHouseArea(g2, centerRight, h);  // P2 집
+        drawHouseArea(g2, centerLeft, h);
+        drawHouseArea(g2, centerRight, h);
 
-        // ===== 4) 왼쪽/오른쪽 풍선 클러스터(placeholder) =====
-        drawBalloonCluster(g2, centerLeft, h, true);   // P1 풍선 자리
-        drawBalloonCluster(g2, centerRight, h, false); // P2 풍선 자리
+        // 풍선 앵커 높이(대략 집 위쪽)
+        double balloonAnchorY = h - 260;
 
-        // ===== 5) 결과 오버레이 (게임 종료 시) =====
+        List<Point> leftPos = buildBalloonPositions(centerLeft, balloonAnchorY);
+        List<Point> rightPos = buildBalloonPositions(centerRight, balloonAnchorY);
+
+        drawBalloonCluster(g2, leftPos, centerLeft, h, true);
+        drawBalloonCluster(g2, rightPos, centerRight, h, false);
+
         drawResultOverlay(g2, w, h);
-
     }
+
+    // ★ 공통 결과 연출: WIN/LOSE 표시 → 2초 후 RETRY/HOME 오버레이
+    private void startResultSequence(ResultState state) {
+        resultState = state;      // P1_WIN / P2_WIN / DRAW
+        finished = true;          // 더 이상 입력 안 받도록
+        showRetryOverlay = false; // 처음엔 WIN/LOSE만 보이게
+
+        // ★ 입력창 숨기기 + 비활성화 (듀얼 결과 화면에서는 타이핑 안 함)
+        inputField.setEnabled(false);
+        inputField.setVisible(false);
+
+        repaint(); // 먼저 WIN/LOSE만 그림
+
+        // 2초(2000ms) 후에 오버레이 켜기
+        javax.swing.Timer t = new javax.swing.Timer(2000, e -> {
+            showRetryOverlay = true;
+            repaint();
+            ((javax.swing.Timer) e.getSource()).stop();
+        });
+        t.setRepeats(false);
+        t.start();
+    }
+
+
+    // HOME 클릭 시 동작
+    private void handleHomeClicked() {
+        try {
+            if (netClient != null) {
+                netClient.close();
+            }
+        } catch (Exception ignore) {}
+
+        resultState = ResultState.NONE;
+        finished = true;
+        showRetryOverlay = false;
+
+        // 홈으로 나갈 때는 입력창은 다음에 듀얼 모드 들어올 때 onShown()에서 다시 켜짐
+        router.show(ScreenId.START);
+    }
+
+    // RETRY 클릭 시 동작
+    private void handleRetryClicked() {
+        finished = false;
+        resultState = ResultState.NONE;
+        showRetryOverlay = false;
+        p1Score = 0;
+        p2Score = 0;
+
+        // 입력창 다시 보이게 + 포커스
+        inputField.setEnabled(true);
+        inputField.setVisible(true);
+        SwingUtilities.invokeLater(() -> inputField.requestFocusInWindow());
+
+        repaint();
+
+        if (netClient != null) {
+            netClient.sendRetry();   // 서버에 다시 시작 알림 (이미 만들어둔 메서드)
+        }
+    }
+
 
 }

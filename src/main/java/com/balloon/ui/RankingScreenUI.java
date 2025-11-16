@@ -3,10 +3,14 @@ package com.balloon.ui;
 import com.balloon.core.ScreenId;
 import com.balloon.core.Showable;
 import com.balloon.core.ScreenRouter;
+
 import com.balloon.ranking.RankingCsvRepository;
 import com.balloon.ranking.RankingRecord;
 import com.balloon.ranking.RankingTableModel;
+
 import com.balloon.ui.assets.ImageAssets;
+import com.balloon.ui.hud.HUDRenderer;
+
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -84,6 +88,10 @@ public class RankingScreenUI extends JPanel implements Showable {
         table.setRowHeight(32);
         table.setAutoCreateRowSorter(true);
 
+        // ★ 여기 추가: 랭킹 셀에 쓸 폰트 (HUD 폰트에서 조금 키워서)
+        Font cellFont = HUDRenderer.HUD_FONT.deriveFont(17f);
+
+
         // 헤더는 ranking.png 안에 이미 그려져 있으니 숨김
         table.setTableHeader(null);
 
@@ -102,7 +110,9 @@ public class RankingScreenUI extends JPanel implements Showable {
                 super.getTableCellRendererComponent(tbl, value, isSelected, hasFocus, row, col);
                 setHorizontalAlignment(SwingConstants.CENTER);
                 setForeground(Color.WHITE);
+                setFont(cellFont);          // ★ 게임 폰트 적용
                 setOpaque(false);  // 배경 투명
+                setBorder(new EmptyBorder(0, 10, 0, 10)); // ★ 좌우 padding 살짝
                 return this;
             }
         };
@@ -115,7 +125,9 @@ public class RankingScreenUI extends JPanel implements Showable {
                 super.getTableCellRendererComponent(tbl, value, isSelected, hasFocus, row, col);
                 setHorizontalAlignment(SwingConstants.RIGHT);
                 setForeground(Color.WHITE);
+                setFont(cellFont);          // ★ 동일 폰트
                 setOpaque(false);
+                setBorder(new EmptyBorder(0, 0, 0, 18));  // 오른쪽 여백 조금
                 return this;
             }
         };
