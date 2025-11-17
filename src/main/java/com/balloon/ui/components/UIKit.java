@@ -13,7 +13,7 @@ public final class UIKit { // 인스턴스화 방지
     public static JButton primaryButton(String text) {
         JButton b = new JButton(text);                                           // 기본 버튼
         b.setFocusPainted(false);                                                // 포커스 테두리 제거
-        b.setBorder(new EmptyBorder(10, 18, 10, 18));                            // 내부 패딩
+        b.setBorder(new EmptyBorder(0, 0, 0, 0));                            // 내부 패딩
         b.setFont(Theme.body());                                                 // 폰트
         b.setForeground(DesignSpec.ACCENT_TEXT_ON);                              // 글자색
         b.setBackground(DesignSpec.ACCENT);                                      // 배경색

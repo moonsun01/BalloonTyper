@@ -8,6 +8,8 @@ package com.balloon.ranking;
  */
 public final class RankingRecord {
 
+    private int rank; //화면용 순위
+
     // 플레이어 이름(표시용)
     private final String name;
 
@@ -61,4 +63,14 @@ public final class RankingRecord {
     public String getPlayedAt() {
         return playedAt;
     }
+
+    // 순위(화면용) ----------------------------------------------------
+    public int getRank() {
+        return rank;
+    }
+
+    public void setRank(int rank) {
+        this.rank = rank;
+    }
+
 }

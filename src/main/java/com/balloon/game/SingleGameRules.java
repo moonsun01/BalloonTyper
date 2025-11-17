@@ -3,6 +3,7 @@ package com.balloon.game;
 1인용 규칙
  */
 
+import com.balloon.game.GameRules;
 import com.balloon.game.model.Balloon;
 import java.util.List;
 
@@ -38,11 +39,11 @@ public class SingleGameRules implements GameRules {
         return state.isGameOver();
     }
 
-    @Override
+   /* @Override
     public int getRemainingTime() {     //남은시간
         return state.getTimeLeft();
     }
-
+*/
     private boolean allCleared(List<Balloon> balloons) {    //풍선 다 터졌는지 확인
         for (Balloon b : balloons) {
             if (b.isActive()) return false;

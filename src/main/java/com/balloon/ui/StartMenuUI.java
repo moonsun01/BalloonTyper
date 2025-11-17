@@ -39,7 +39,7 @@ public class StartMenuUI extends JPanel {
         setPreferredSize(new Dimension(1280, 720));
 
         // 닉네임 입력창 (이미지 상 입력칸 위치에 맞춤)
-        JTextField nicknameField = new JTextField();
+        nicknameField = new JTextField();
         nicknameField.setHorizontalAlignment(JTextField.CENTER);
         nicknameField.setFont(new Font("Dialog", Font.PLAIN, 18));
         // x, y, w, h (이미지 기준 미세조정 가능)
@@ -47,6 +47,34 @@ public class StartMenuUI extends JPanel {
         nicknameField.setBackground(new Color(255, 255, 255, 220));
         nicknameField.setBorder(BorderFactory.createLineBorder(Color.BLACK, 3));
         add(nicknameField);
+
+        // ★ 플레이스홀더 텍스트
+        final String PLACEHOLDER = "닉네임을 입력하세요!";
+        nicknameField.setText(PLACEHOLDER);
+        nicknameField.setForeground(Color.GRAY);
+
+// 포커스 잃었을 때만, 비어 있으면 다시 플레이스홀더 복구
+        nicknameField.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) {
+                if (nicknameField.getText().trim().isEmpty()) {
+                    nicknameField.setText(PLACEHOLDER);
+                    nicknameField.setForeground(Color.GRAY);
+                }
+            }
+        });
+
+// 키보드를 처음 누를 때 플레이스홀더 지우기
+        nicknameField.addKeyListener(new java.awt.event.KeyAdapter() {
+            @Override
+            public void keyPressed(java.awt.event.KeyEvent e) {
+                if (nicknameField.getText().equals(PLACEHOLDER)) {
+                    nicknameField.setText("");
+                    nicknameField.setForeground(Color.BLACK);
+                }
+            }
+        });
+
 
 // START (노란 칩 위)
         JButton startBtn = new JButton();                 // ← 텍스트 제거
@@ -72,15 +100,18 @@ public class StartMenuUI extends JPanel {
 
         // 라우팅 연결
         startBtn.addActionListener(e -> {
+            String name = nicknameField.getText().trim();
+            if (name.equals(PLACEHOLDER)) {  // 아직 플레이스홀더 상태면
+                name = "";                   // 빈 문자열로 처리
+            }
             Session.setNickname(nicknameField.getText());
             router.show(ScreenId.MODE_SELECT);
-
-
         });
         guideBtn.addActionListener(e -> router.show(ScreenId.GUIDE));
         rankBtn.addActionListener(e -> router.show(ScreenId.RANKING));
     }
 
+    //배경 꽉 채우기
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);

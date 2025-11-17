@@ -25,7 +25,7 @@ public class PlaceholderScreen extends JPanel {
         JLabel label = new JLabel(title);
 
         //글자를 조금 크기/굵게 : 기존 폰트 기반으로 굵게 + 28pt
-        label.setFont(label.getFont().deriveFont(Font.BOLD, 28f));
+        label.setFont(label.getFont().deriveFont(Font.PLAIN, 28f));
 
         //라벨 생성(선택): 살짝 어두운 화면에서도 잘 보이도록
         label.setForeground(new Color(40,40,40));

@@ -8,5 +8,4 @@ public interface GameRules {
     void onPop(List<Balloon> balloons);         //정답처리
     void onMiss();                              //오답처리
     boolean isGameOver();                       //종료여부
-    int getRemainingTime();                     //남은시간
 }

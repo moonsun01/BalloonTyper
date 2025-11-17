@@ -1,89 +1,67 @@
 package com.balloon.items;
 
-import com.balloon.game.GameState;
-import com.balloon.game.model.Balloon;
-
-import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
-
+//아이템 효과를 실제 게임 상태에 반영
 public class ItemEffectApplier {
 
-    public interface TimeApi { void onTimeChanged(); }
-    public interface UiApi {
-        void toast(String text);
-        void blindScreen(int durationMs);   //2P
-    }
-    public interface FieldApi {
-        List<Balloon> getActiveBalloons();
-        void addRandomBalloons(int n);
-        void removeRandom(int n, int minKeep);
-        int minKeep();
+    //시간 조작 API
+    public interface TimeApi {
+        void addSeconds(int delta);     // 음수 허용
+        int getTimeLeft();
     }
 
-    public void apply1P(Item item, GameState state, TimeApi time, UiApi ui, FieldApi field) {
-        if (item == null) return;
+    //UI 표시 API
+    public interface UiApi {
+        void showToast(String message);
+        void flashEffect(boolean positive);
+    }
+
+    //필드 조작 API
+    public interface FieldApi {
+        void addBalloons(int n);
+        void removeBalloons(int n);
+    }
+
+    private final TimeApi timeApi;
+    private final UiApi uiApi;
+    private final FieldApi fieldApi;
+
+    public ItemEffectApplier(TimeApi timeApi, UiApi uiApi, FieldApi fieldApi) {
+        this.timeApi = timeApi;
+        this.uiApi = uiApi;
+        this.fieldApi = fieldApi;
+    }
+
+    //효과 적용 단일 진입점
+    public void apply(Item item) {
+        if (item == null || !item.isActive()) return;
 
         switch (item.getKind()) {
             case TIME_PLUS_5 -> {
-                state.addTime(5);
-                if (time != null) time.onTimeChanged();
-                if (ui != null) ui.toast("+5초!");
+                timeApi.addSeconds(+5);
+                uiApi.showToast("+5초! (남은시간: " + timeApi.getTimeLeft() + "s)");
+                uiApi.flashEffect(true);
             }
-            case TIME_MINUS_3 -> {
-                state.addTime(-3);
-                if (time != null) time.onTimeChanged();
-                if (ui != null) ui.toast("-3초!");
+            case TIME_MINUS_5 -> {
+                timeApi.addSeconds(-3);
+                uiApi.showToast("-5초… (남은시간: " + timeApi.getTimeLeft() + "s)");
+                uiApi.flashEffect(false);
             }
             case BALLOON_PLUS_2 -> {
-                field.addRandomBalloons(2);
-                if (ui != null) ui.toast("풍선 +2");
+                new javax.swing.Timer(400, e -> {
+                    fieldApi.addBalloons(2);
+                    uiApi.showToast("풍선+2");
+                    uiApi.flashEffect(true);
+                }) {{ setRepeats(false); start(); }};
             }
             case BALLOON_MINUS_2 -> {
-                field.removeRandom(2, field.minKeep());
-                if (ui != null) ui.toast("풍선 -2");
+                new javax.swing.Timer(400, e -> {
+                    fieldApi.removeBalloons(2);
+                    uiApi.showToast("풍선-2");
+                    uiApi.flashEffect(false);
+                }) {{ setRepeats(false); start(); }};
             }
-            case DUD -> {
-                if (ui != null) ui.toast("광!");
-            }
-            default -> {/* 2p전용 */}
         }
+
+        item.deactivate();
     }
-
-    //2P 적용
-    public void apply2P(Item item,
-                        GameState myState, GameState oppState,
-                        TimeApi myTime, UiApi myUi, FieldApi myField,
-                        UiApi oppUi, FieldApi oppField) {
-        if (item == null) return;
-
-        switch (item.getKind()) {
-            case SELF_FIELD_PLUS_3 -> {
-                myField.addRandomBalloons(3);
-                if (myUi != null) myUi.toast("내 필드 +3");
-            }
-            case SELF_FIELD_MINUS_2 -> {
-                myField.removeRandom(2, myField.minKeep());
-                if (myUi != null) myUi.toast("내 필드 -2");
-            }
-            case OPP_FIELD_PLUS_3 -> {
-                oppField.addRandomBalloons(3);
-                if (oppUi != null) oppUi.toast("상대 필드 +3");
-            }
-            case OPP_FIELD_MINUS_2 -> {
-                oppField.removeRandom(2, oppField.minKeep());
-                if (myUi != null) myUi.toast("상대 필드 -2");
-                if (oppUi != null) oppUi.toast("필드 -2..");
-            }
-            case TRICK_BLIND -> {
-                if (oppUi != null) oppUi.blindScreen(Math.max(800, item.getDurationMs()));
-                if (myUi != null) myUi.toast("상대 시야 방해!");
-            }
-            case PVP_DUD -> {
-                if (myUi != null) myUi.toast("꽝");
-            }
-            default -> {/*1P전용은 무시*/}
-        }
-    }
-
-    static int rnd(int bound) {return ThreadLocalRandom.current().nextInt(bound);}
 }

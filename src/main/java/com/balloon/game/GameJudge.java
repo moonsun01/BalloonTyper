@@ -1,89 +1,58 @@
 package com.balloon.game;
 
 import com.balloon.game.model.Balloon;
-import com.balloon.items.Item;
-import com.balloon.items.ItemSpawner;
 import com.balloon.items.ItemEffectApplier;
+import com.balloon.items.ItemSpawner;
 
+import java.text.Normalizer;
 import java.util.List;
 
 public class GameJudge {
+    private final ItemSpawner spawner;               // null 허용
+    private final ItemEffectApplier applier;         // null 허용
 
-    // 아이템, 상태
-    private GameState state;
-    private ItemSpawner spawner;
-    private ItemEffectApplier applier;
-    private ItemEffectApplier.TimeApi timeApi;
-    private ItemEffectApplier.UiApi uiApi;
-    private ItemEffectApplier.FieldApi fieldApi;
-
-    public GameJudge() {}
-
-    public GameJudge(GameState state,
-                     ItemSpawner spawner,
-                     ItemEffectApplier applier,
-                     ItemEffectApplier.TimeApi timeApi,
-                     ItemEffectApplier.UiApi uiApi,
-                     ItemEffectApplier.FieldApi fieldApi) {
-        this.state = state;
+    public GameJudge(ItemSpawner spawner, ItemEffectApplier applier) {
         this.spawner = spawner;
         this.applier = applier;
-        this.timeApi = timeApi;
-        this.uiApi = uiApi;
-        this.fieldApi = fieldApi;
     }
 
-    public void setState(GameState state) { this.state = state; }
-    public void setSpawner(ItemSpawner spawner) { this.spawner = spawner; }
-    public void setApplier(ItemEffectApplier applier) { this.applier = applier; }
-    public void setTimeApi(ItemEffectApplier.TimeApi timeApi) { this.timeApi = timeApi; }
-    public void setUiApi(ItemEffectApplier.UiApi uiApi) { this.uiApi = uiApi; }
-    public void setFieldApi(ItemEffectApplier.FieldApi fieldApi) { this.fieldApi = fieldApi; }
+    private static String norm(String s) {
+        if (s == null) return "";
+        s = s.trim();
+        return Normalizer.normalize(s, Normalizer.Form.NFC);
+    }
 
+    /** 입력 단어와 일치하는 풍선 찾기 (NFC + trim + equalsIgnoreCase) */
     public Balloon findBestMatch(List<Balloon> balloons, String input) {
         if (balloons == null || balloons.isEmpty()) return null;
-        if (input == null) return null;
-
-        String s = input.trim();
-        if (s.isEmpty()) return null;              // 빈 입력은 매칭X
+        String needle = norm(input);
+        if (needle.isEmpty()) return null;
 
         for (Balloon b : balloons) {
-            if (b == null) continue;
             if (!b.isActive()) continue;
-
-            String w = b.getWord();
-            if (w == null) continue;
-
-            if (w.equals(s)) {
-                return b;                          // 중복단어 없음 → 즉시 반환
+            if (norm(b.getWord()).equalsIgnoreCase(needle)) {
+                return b;
             }
         }
         return null;
     }
 
+    /** 입력 판정: 맞으면 pop + (있으면)아이템 처리, 틀리면 onMiss */
     public boolean submit(List<Balloon> balloons, String input, GameRules rules) {
-        if (input == null || input.trim().isEmpty()) {
-            return false;                          // life 감소 없이 무시
-        }
-
         Balloon matched = findBestMatch(balloons, input);
 
-        if (matched != null) {                     // 정답
-            matched.pop();                         // 풍선 터뜨림
+        if (matched != null) {
+            matched.pop();
 
-            // 아이템 드랍 & 적용 (1P용)
-            if (spawner != null && applier != null && state != null) {
-                Item item = spawner.rollOnPop1P();
-                if (item != null) {
-                    applier.apply1P(item, state, timeApi, uiApi, fieldApi);
-                }
+            // 아이템 드랍/적용 (연동된 경우에만)
+            if (spawner != null && applier != null) {
+                spawner.maybeSpawnOnBalloonPop(matched).ifPresent(applier::apply);
             }
 
-            rules.onPop(balloons);                 // 규칙 처리(남은 풍선 0 → 레벨 클리어 등)
+            rules.onPop(balloons);
             return true;
         }
-
-        rules.onMiss();                            // 오답 처리(오직 오답에서만 life 감소)
+        rules.onMiss();
         return false;
     }
 }

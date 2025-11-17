@@ -7,7 +7,7 @@ package com.balloon.game;
 
 public class GameState {
     private int level;
-    private int life;
+    private int lives;
     private int timeLeft;
     private int totalScore;
 
@@ -16,7 +16,7 @@ public class GameState {
     public GameState(LevelConfig config) {
         this.level = 1;                                     // 시작레벨 1
         this.totalScore = 0;                                // 시작 점수 0점
-        this.life = 3;                                      // 시작 생명 3개
+        this.lives = 3;                                      // 시작 생명 3개
         this.config = config;
         this.timeLeft = config.getInitialTime(level);
     }
@@ -31,13 +31,13 @@ public class GameState {
 
     //점수 (남은시간->점수 누적)
     public void addRemainingTimeAsScore() {
-        totalScore += Math.max(0, timeLeft);            // 0이랑 timeleft중 큰 값 반환 후 더하기
+        totalScore += Math.max(0, timeLeft) * 10;            // 0이랑 timeleft중 큰 값 반환 후 더하기
     }
     public int getTotalScore() { return totalScore; }
 
     //생명
-    public void loseLife() { if (life > 0) life--; }    // 오답 -> 생명-1
-    public int getLife() { return life; }
+    public void loseLife() { if (lives > 0) lives--; }    // 오답 -> 생명-1
+    public int getLife() { return lives; }
 
     //시간
     public void decreaseTime() { if (timeLeft > 0) timeLeft--; }    // 1초씩 감소
@@ -46,10 +46,12 @@ public class GameState {
     //게임종료
     public boolean isGameOver() {
         boolean timeOut = (timeLeft <= 0);
-        boolean noLife = (life <= 0);
+        boolean noLife = (lives <= 0);
         boolean clearedAll = (level > 3);
         return timeOut || noLife || clearedAll;
     }
 
-    public void addTime(int sec) {timeLeft = Math.max(0, timeLeft + sec);}      //아이템
+    public void addSeconds(int delta) {
+        timeLeft = Math.max(0, timeLeft + delta);
+    }
 }

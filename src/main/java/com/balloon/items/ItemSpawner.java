@@ -1,41 +1,97 @@
 package com.balloon.items;
 
-import java.util.concurrent.ThreadLocalRandom;
+import com.balloon.game.model.Balloon;
+import com.balloon.ui.skin.SecretItemSkin;
 
+
+import java.util.Optional;
+import java.util.Random;
+
+/** 풍선 '터짐' 이벤트에서 아이템 드랍 여부/종류를 즉석 결정 */
 public class ItemSpawner {
-    private int dropPercent = 25;   //전체 드랍 확률
+    private final Random rnd = new Random();
 
-    //1p 가중치
-    private int wTimePlus5 = 28, wTimeMinus3 = 18, wBalloonPlus2 = 24, wBalloonMinus2 = 20, wDud = 10;
+    /** 드랍 확률(0.0~1.0). 예: 0.25 = 25% */
+    private double dropChance = 0.25;
 
-    //2p 가중치
-    private int wSelfPlus3 = 18, wSelfMinus2 = 14, wOppPlus3 = 24, wOppMinus2 = 24, wBlind = 15, wPvpDud = 5;
+    /** 가중치: 긍정 3, 부정 2 느낌. 합은 비율만 맞으면 됨 */
+    private int wTimePlus5 = 3;
+    private int wTimeMinus3 = 2;
+    private int wBalloonPlus2 = 3;
+    private int wBalloonMinus2 = 2;
 
-    public Item rollOnPop1P() {
-        if (!roll(dropPercent)) return null;
-        int sum = wTimePlus5 + wTimeMinus3 + wBalloonMinus2 + wBalloonPlus2 + wDud;
-        int r = rnd(sum);
-        if ((r-=wTimePlus5) < 0) return Item.timePlus5();
-        if ((r-=wTimeMinus3) < 0) return Item.timeMinus3();
-        if ((r-=wBalloonPlus2) < 0) return Item.balloonPlus2();
-        if ((r-=wBalloonMinus2) < 0) return Item.balloonMinus2();
-        return Item.dud();
+    public ItemSpawner() {}
+
+    public void setDropChance(double p) {
+        this.dropChance = Math.max(0, Math.min(1, p));
     }
 
-    public Item rollOnPop2P() {
-        if (!roll(dropPercent)) return null;
-        int sum = wSelfPlus3 + wSelfMinus2 + wOppPlus3 + wOppMinus2 + wBlind + wPvpDud;
-        int r = rnd(sum);
-        if ((r-=wSelfPlus3) < 0) return Item.selfPlus3();
-        if ((r-=wSelfMinus2) < 0) return Item.selfMinus2();
-        if ((r-=wOppPlus3) < 0) return Item.oppPlus3();
-        if ((r-=wOppMinus2) < 0) return Item.oppMinus2();
-        if ((r-=wBlind) < 0) return Item.trickBlind(2500);
-        return Item.pvpDud();
+    public Optional<Item> maybeSpawnOnBalloonPop(Balloon popped) {
+        if (popped == null) return Optional.empty();
+
+        // ★ 1) Balloon에 붙어 있는 카테고리 확인
+        SecretItemSkin.ItemCategory cat = popped.getCategory();
+
+        // ★ 1-1) 카테고리가 NONE이면(=검정 글씨) 아이템 없음
+        if (cat == null || cat == SecretItemSkin.ItemCategory.NONE) {
+            return Optional.empty();
+        }
+
+        // ★ 2) TIME / BALLOON 카테고리는 100% 드랍 (확률 체크 안 함)
+        ItemKind kind = rollKindByCategory(cat);
+
+        int x = Math.round(popped.getX());
+        int y = Math.round(popped.getY());
+        return Optional.of(new Item(kind, x, y));
     }
 
-    private boolean roll(int percent) {return ThreadLocalRandom.current().nextInt(100) < percent;}
-    private int rnd(int bound) {return ThreadLocalRandom.current().nextInt(bound);}
+    private ItemKind rollKindByCategory(SecretItemSkin.ItemCategory category) {
+        if (category == SecretItemSkin.ItemCategory.TIME) {
+            // 빨간 글씨 → 시간 아이템(+5 또는 -3초)만
+            return rollTimeKind();
+        } else if (category == SecretItemSkin.ItemCategory.BALLOON) {
+            // 파란 글씨 → 풍선 아이템(+2 또는 -2개)만
+            return rollBalloonKind();
+        }
 
-    public void setDropPercent(int p) {this.dropPercent = (Math.min(100, p));}
+        // 혹시 TRICK 같은 다른 카테고리를 쓸 일이 생기면 기존 로직 사용
+        return rollKind();
+    }
+
+    /** 시간 계열 아이템만 뽑기: TIME_PLUS_5 또는 TIME_MINUS_3 */
+    private ItemKind rollTimeKind() {
+        int sum = wTimePlus5 + wTimeMinus3;
+        if (sum <= 0) return ItemKind.TIME_PLUS_5;
+
+        int r = rnd.nextInt(sum);
+        if (r < wTimePlus5) return ItemKind.TIME_PLUS_5;
+        return ItemKind.TIME_MINUS_5;
+    }
+
+    /** 풍선 계열 아이템만 뽑기: BALLOON_PLUS_2 또는 BALLOON_MINUS_2 */
+    private ItemKind rollBalloonKind() {
+        int sum = wBalloonPlus2 + wBalloonMinus2;
+        if (sum <= 0) return ItemKind.BALLOON_PLUS_2;
+
+        int r = rnd.nextInt(sum);
+        if (r < wBalloonPlus2) return ItemKind.BALLOON_PLUS_2;
+        return ItemKind.BALLOON_MINUS_2;
+    }
+
+    private boolean rollDrop() {
+        return rnd.nextDouble() < dropChance;
+    }
+
+    private ItemKind rollKind() {
+        int sum = wTimePlus5 + wTimeMinus3 + wBalloonPlus2 + wBalloonMinus2;
+        if (sum <= 0) return ItemKind.TIME_PLUS_5;
+        int r = rnd.nextInt(sum);
+        int acc = 0;
+
+        acc += wTimePlus5;      if (r < acc) return ItemKind.TIME_PLUS_5;
+        acc += wTimeMinus3;     if (r < acc) return ItemKind.TIME_MINUS_5;
+        acc += wBalloonPlus2;   if (r < acc) return ItemKind.BALLOON_PLUS_2;
+        // 남은 케이스
+        return ItemKind.BALLOON_MINUS_2;
+    }
 }
