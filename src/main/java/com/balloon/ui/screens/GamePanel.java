@@ -12,6 +12,16 @@ import com.balloon.ui.assets.BalloonSkins;
 import com.balloon.ui.assets.BalloonSkins.Skin;
 import com.balloon.ui.assets.ImageAssets;
 
+// 단어 관련
+import com.balloon.game.CsvWordLoader;
+import com.balloon.game.WordProvider;
+import com.balloon.game.NonRepeatingWordProvider;
+
+// 새 랭킹용
+import com.balloon.data.ScoreEntry;
+import com.balloon.data.RankingRepository;
+import com.balloon.data.CsvRankingRepository;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
@@ -23,15 +33,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Random;
-
-import com.balloon.core.GameContext;
-import com.balloon.ranking.RankingCsvRepository;
-import com.balloon.ranking.RankingRecord;
-
-// 🔽 단어 관련
-import com.balloon.game.CsvWordLoader;
-import com.balloon.game.WordProvider;
-import com.balloon.game.NonRepeatingWordProvider;
 
 /**
  * UI는 1번 코드 스타일 유지 + 게임 로직은 GameState/Rules/Judge 구조 그대로
@@ -52,9 +53,9 @@ public class GamePanel extends JPanel implements Showable {
     // 스코어 브레이크다운 (UI용 임시)
     private int correctCount = 0;
     private int wrongCount = 0;
-    private int wordScore = 0;  // 정답 1개당 10점
-    private int timeBonus = 0;  // 남은 시간 기반 보너스
-    private int itemBonus = 0;  // 아이템으로 인한 변화
+
+    // ✅ 총점: 각 스테이지 클리어 시 (남은 시간 × 10)을 누적
+    private int totalScore = 0;
 
     // UI 콜백을 제공하는 Applier (시간/토스트/필드 조작)
     private final ItemEffectApplier applier = new ItemEffectApplier(
@@ -153,6 +154,13 @@ public class GamePanel extends JPanel implements Showable {
             new javax.swing.Timer(200, e -> repaint());
 
     private boolean caretOn = true;
+
+    // 기본 폰트 유틸
+    private static Font fontM() {
+        Font base = UIManager.getFont("Label.font");
+        if (base == null) base = new Font("Dialog", Font.PLAIN, 12);
+        return base.deriveFont(14f);
+    }
 
     public GamePanel(ScreenRouter router) {
         this.router = router;
@@ -281,7 +289,7 @@ public class GamePanel extends JPanel implements Showable {
         tickTimer = new javax.swing.Timer(1000, e -> {
             if (resultShown) return;
 
-            // ✅ 풍선이 이미 다 사라져 있으면, 시간 남았어도 바로 클리어 처리
+            // 풍선이 다 사라졌으면 바로 클리어
             if (!stageClearedThisRound && allCleared()) {
                 onStageCleared();
                 return;
@@ -291,13 +299,11 @@ public class GamePanel extends JPanel implements Showable {
                 state.decreaseTime();
                 refreshHUD();
 
-                // 시간 다 됐는데 풍선 남아 있으면 실패
                 if (state.getTimeLeft() == 0 && !allCleared()) {
                     onStageFailed();
                 }
             }
         });
-
 
         // ========= 이미지 로드 / 배경 =========
         heartImg = ImageAssets.load("heart.png");
@@ -314,9 +320,6 @@ public class GamePanel extends JPanel implements Showable {
         tickTimer.start();
     }
 
-    // --------------------------------------------------
-    //  paintComponent : 배경 PNG
-    // --------------------------------------------------
     @Override
     public Dimension getPreferredSize() {
         return new Dimension(1280, 720);
@@ -350,8 +353,7 @@ public class GamePanel extends JPanel implements Showable {
             try {
                 String fromCtx = (ctx != null) ? ctx.getPlayerName() : null;
                 if (fromCtx != null && !fromCtx.isBlank()) name = fromCtx;
-            } catch (Exception ignore) {
-            }
+            } catch (Exception ignore) {}
         }
         if (name == null || name.isBlank()) name = "-";
         return name;
@@ -365,14 +367,16 @@ public class GamePanel extends JPanel implements Showable {
         try {
             String m = (ctx != null) ? String.valueOf(ctx.getMode()) : null;
             if (m != null && !m.equalsIgnoreCase("null") && !m.isBlank()) mode = m;
-        } catch (Exception ignore) {
-        }
+        } catch (Exception ignore) {}
         modeLabel.setText("Mode: " + mode);
     }
 
     private void refreshHUD() {
+        // 원래: scoreLabel.setText("Score: " + state.getTotalScore());
+
+        // ✅ 총점은 우리가 누적한 totalScore 사용
+        scoreLabel.setText("Score: " + totalScore);
         timeLabel.setText("Time: " + Math.max(0, state.getTimeLeft()));
-        scoreLabel.setText("Score: " + state.getTotalScore());
         repaint();
     }
 
@@ -398,7 +402,6 @@ public class GamePanel extends JPanel implements Showable {
         return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFC);
     }
 
-    // 현재 활성 풍선들 중에 같은 단어가 있는지 확인
     private boolean hasActiveBalloonWithWord(String word) {
         String needle = norm(word);
         for (Balloon b : balloons) {
@@ -409,7 +412,6 @@ public class GamePanel extends JPanel implements Showable {
         return false;
     }
 
-    // wordProvider에서 "현재 필드에 없는" 단어 골라오기
     private String nextUniqueWord() {
         String w = "empty";
         int tries = 0;
@@ -418,7 +420,7 @@ public class GamePanel extends JPanel implements Showable {
             w = wordProvider.nextWord();
             if (w == null || w.isBlank()) return "empty";
             tries++;
-            if (tries > 20) { // 단어 부족할 때 무한루프 방지
+            if (tries > 20) {
                 break;
             }
         } while (hasActiveBalloonWithWord(w));
@@ -432,7 +434,7 @@ public class GamePanel extends JPanel implements Showable {
     }
 
     // --------------------------------------------------
-    //  Enter 처리 : GameJudge + GameState
+    //  Enter 처리
     // --------------------------------------------------
     private void onEnter() {
         String typed = inputField.getText().trim();
@@ -454,8 +456,7 @@ public class GamePanel extends JPanel implements Showable {
 
         if (ok) {
             correctCount++;
-            wordScore += 10;
-
+            // ✅ 단어 맞출 때는 점수 안 줌 (정답/오답 카운트만)
             removeFirstByWord(typed);
             showToast("✓ Pop!", new Color(25, 155, 75));
 
@@ -529,8 +530,12 @@ public class GamePanel extends JPanel implements Showable {
         int remain = Math.max(0, state.getTimeLeft());
         int bonus = remain * 10;
 
-        timeBonus += bonus;
+        // ✅ 우리가 정한 규칙: 남은 시간 × 10점을 누적
+        totalScore += bonus;
+
+        // 내부 GameState 점수 쓰고 싶으면 유지, 아니면 삭제해도 됨
         state.addRemainingTimeAsScore();
+
         refreshHUD();
 
         showOverlay("✔ SUCCESS!  +" + bonus + "점", new Color(110, 220, 110));
@@ -581,27 +586,41 @@ public class GamePanel extends JPanel implements Showable {
     }
 
     private void showResult() {
+
         if (resultShown) return;
         resultShown = true;
 
         stopGameLoops();
 
         int remainTime = Math.max(0, state.getTimeLeft());
-        int totalScore = state.getTotalScore();
+
+        // ✅ 최종 점수 = 우리가 누적해둔 totalScore 그대로 사용
+        int finalScore = totalScore;
+
         int totalTry = correctCount + wrongCount;
         double acc = (totalTry > 0) ? (correctCount * 1.0 / totalTry) : 0.0;
 
-        ResultData data = new ResultData(totalScore, remainTime, acc, correctCount, wrongCount);
+        // ResultContext에 결과 전달
+        ResultData data = new ResultData(finalScore, remainTime, acc, correctCount, wrongCount);
         ResultContext.set(data);
 
         double accuracyPercent = acc * 100.0;
-        saveRanking(totalScore, accuracyPercent, remainTime);
+        // 랭킹 CSV 저장도 totalScore 사용
+        // 랭킹은 SINGLE 모드에서만 저장
+        if (ctx == null
+                || ctx.getMode() == null
+                || ctx.getMode() == GameContext.GameMode.SINGLE) {
+            saveRanking(totalScore, accuracyPercent, remainTime);
+        }
+
+
 
         if (router != null) {
             try {
                 Component c = router.get(ScreenId.RESULT);
                 if (c instanceof ResultScreen rs) {
-                    rs.setResult(totalScore, acc, remainTime);
+                    rs.setResult(finalScore, acc, remainTime);
+                    // 나중에 브레이크다운 보여주고 싶으면:
                     // rs.setBreakdown(wordScore, timeBonus, 0, itemBonus);
                 }
                 router.show(ScreenId.RESULT);
@@ -749,7 +768,6 @@ public class GamePanel extends JPanel implements Showable {
                     BufferedImage img = BalloonSkins.of(skin);
                     int x = startX + c * gapX;
 
-                    // 🔽 현재 필드에서 안 쓰는 단어만 사용
                     String word = nextUniqueWord();
 
                     Balloon m = new Balloon(word, x, y, toKind(skin));
@@ -826,7 +844,6 @@ public class GamePanel extends JPanel implements Showable {
             Skin[] skins = new Skin[]{Skin.PURPLE, Skin.YELLOW, Skin.PINK, Skin.ORANGE, Skin.GREEN};
 
             for (int i = 0; i < n; i++) {
-                // 🔽 아이템으로 추가되는 풍선도 중복 없는 단어 사용
                 String word = nextUniqueWord();
 
                 Skin skin = skins[rnd.nextInt(skins.length)];
@@ -931,21 +948,12 @@ public class GamePanel extends JPanel implements Showable {
     //  SingleGameRules : GameRules 구현
     // --------------------------------------------------
     private final class SingleGameRules implements GameRules {
-        @Override
-        public void onTick() {
-        }
-
-        @Override
-        public void onPop(List<Balloon> bs) {
-        }
-
-        @Override
-        public void onMiss() {
+        @Override public void onTick() {}
+        @Override public void onPop(List<Balloon> bs) {}
+        @Override public void onMiss() {
             state.loseLife();
         }
-
-        @Override
-        public boolean isGameOver() {
+        @Override public boolean isGameOver() {
             return state.isGameOver();
         }
     }
@@ -956,20 +964,22 @@ public class GamePanel extends JPanel implements Showable {
     private void saveRanking(int finalScore, double accuracyPercent, int timeLeftSeconds) {
         String playerName = resolvePlayerName();
 
-        String playedAt = LocalDateTime.now()
-                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        // 기본값
+        GameMode mode = GameMode.SINGLE;
 
-        RankingRecord record = new RankingRecord(
-                playerName,
-                finalScore,
-                accuracyPercent,
-                timeLeftSeconds,
-                playedAt
-        );
+        // ✅ 여기 한 줄만 중요: 내부 enum → 새 GameMode 로 매핑
+        try {
+            if (ctx != null && ctx.getMode() != null) {
+                mode = GameMode.valueOf(ctx.getMode().name());
+            }
+        } catch (Exception ignore) {
+        }
+
+        ScoreEntry entry = new ScoreEntry(playerName, finalScore, mode);
 
         try {
-            RankingCsvRepository repo = new RankingCsvRepository();
-            // repo.append(record); // 실제 메서드 이름에 맞게 수정
+            RankingRepository repo = new CsvRankingRepository();
+            repo.save(entry);
         } catch (Exception e) {
             System.err.println("[GamePanel] saveRanking failed: " + e);
         }
