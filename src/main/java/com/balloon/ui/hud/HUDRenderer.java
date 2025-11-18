@@ -13,9 +13,16 @@ public final class HUDRenderer {
 
     private HUDRenderer() {}
 
+    public static final Font HUD_FONT = new Font("Dialog", Font.BOLD, 18);
+
     private static final int PAD = 10;
     private static final int RADIUS = 12;
     private static final float BG_ALPHA = 0.60f; // 배경 반투명
+
+    public static final int MAIN_HUD_X = 40;   // 왼쪽 여백
+    public static final int MAIN_HUD_Y = 80;   // 첫 줄 Y
+    public static final int MAIN_HUD_LINE_GAP = 30; // 줄 간격
+
 
     public static void drawCurrentItemBadge(Graphics2D g2, int panelW, int panelH, GameContext ctx) {
         if (g2 == null || ctx == null) return;
@@ -104,4 +111,45 @@ public final class HUDRenderer {
         g2.setFont(oldFont);
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, aaOld);
     }
+
+    /**
+     * Single 모드용 메인 HUD 텍스트
+     * Player → life → Time → Score 순서로 왼쪽에 표시.
+     * (life 하트 이미지는 여기서 안 그리고, GamePanel 쪽에서 이어서 그림)
+     */
+    public static void drawMainHudText(Graphics2D g2,
+                                       String playerName,
+                                       int remainingSec,
+                                       int score) {
+        if (g2 == null) return;
+
+        Font oldFont = g2.getFont();
+        g2.setFont(HUD_FONT);
+        g2.setColor(Color.WHITE);  // 필요하면 테마에 맞게 수정
+
+        int x = MAIN_HUD_X;
+        int y = MAIN_HUD_Y;
+
+        // 1) Player
+        g2.drawString("Player : " + playerName, x, y);
+
+        // 2) life 라벨(이미지는 GamePanel에서 이어서 그림)
+        y += MAIN_HUD_LINE_GAP;
+        g2.drawString("life :", x, y);
+        // 이 줄(y)이 life 이미지가 올라갈 기준 Y가 됨
+
+        // 3) Time (남은 시간: 초 → 분/초)
+        y += MAIN_HUD_LINE_GAP;
+        int minutes = remainingSec / 60;
+        int seconds = remainingSec % 60;
+        String timeText = String.format("Time : %d m %02d s", minutes, seconds);
+        g2.drawString(timeText, x, y);
+
+        // 4) Score
+        y += MAIN_HUD_LINE_GAP;
+        g2.drawString("Score : " + score, x, y);
+
+        g2.setFont(oldFont);
+    }
+
 }

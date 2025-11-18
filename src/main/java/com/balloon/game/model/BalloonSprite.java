@@ -2,7 +2,7 @@ package com.balloon.game.model;
 
 import java.awt.Color;
 import java.awt.image.BufferedImage;
-import com.balloon.ui.skin.SecretItemSkin.ItemCategory;
+import com.balloon.ui.skin.SecretItemSkin;
 import java.awt.image.BufferedImage;
 
 
@@ -25,7 +25,7 @@ public class BalloonSprite {
     public State state = State.ALIVE;
 
     // [UI-only] 아이템 시각화를 위한 선택 필드(없으면 NORMAL/0으로 둔다)
-    public ItemCategory category = ItemCategory.NONE;
+    public SecretItemSkin.ItemCategory category = SecretItemSkin.ItemCategory.NONE;
     public int itemValue = 0;
 
 

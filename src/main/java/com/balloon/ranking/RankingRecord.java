@@ -63,4 +63,14 @@ public final class RankingRecord {
     public String getPlayedAt() {
         return playedAt;
     }
+
+    // 순위(화면용) ----------------------------------------------------
+    public int getRank() {
+        return rank;
+    }
+
+    public void setRank(int rank) {
+        this.rank = rank;
+    }
+
 }

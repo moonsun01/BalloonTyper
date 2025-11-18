@@ -1,6 +1,7 @@
 package com.balloon.ui.render;
 
 import com.balloon.game.model.BalloonSprite;
+import com.balloon.ui.skin.SecretItemSkin;
 
 import java.awt.*;
 import java.awt.geom.QuadCurve2D;
@@ -71,10 +72,29 @@ public class BalloonSpriteRenderer {
         int tx = b.x - fm.stringWidth(text) / 2;
         int ty = b.y + fm.getAscent() / 2 - 6;
 
-        // ★ 본문 색: textColor 우선
-        Color base = (b.textColor != null) ? b.textColor : Color.BLACK;
+//        // ★ 본문 색: textColor 우선
+//        Color base = (b.textColor != null) ? b.textColor : Color.BLACK;
+//        g2.setColor(base);
+//        g2.drawString(text, tx, ty);
+//
+        Color base;
+        if (b.textColor != null) {
+            // 1) PlayField 등에서 미리 넣어준 textColor가 있으면 그걸 최우선 사용
+            base = b.textColor;
+        } else if (b.category == SecretItemSkin.ItemCategory.TIME) {
+            // 2) 카테고리가 TIME이면 빨간 계열
+            base = new Color(255, 110, 110);
+        } else if (b.category == SecretItemSkin.ItemCategory.BALLOON) {
+            // 3) 카테고리가 BALLOON이면 파란 계열
+            base = new Color(120, 160, 255);
+        } else {
+            // 4) 그 외(NONE, TRICK 등)는 기본색(검정)
+            base = Color.BLACK;
+        }
+
         g2.setColor(base);
         g2.drawString(text, tx, ty);
+
 
         g2.setFont(oldFont);
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, oldAA);

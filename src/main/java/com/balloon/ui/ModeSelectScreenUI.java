@@ -18,6 +18,18 @@ public class ModeSelectScreenUI extends JPanel {
         setLayout(null);
         setPreferredSize(new Dimension(1280, 720));
 
+        // =========================
+        // [ADD] GUIDE랑 같은 위치의 투명 BACK 버튼
+        //  - 좌상단 (28, 24) / 크기 (160 x 80)
+        //  - 클릭하면 START 화면으로 돌아가기
+        // =========================
+        JButton back = new JButton("BACK");
+        styleTransparent(back);               // 글자/배경 모두 보이지 않게
+        back.setBounds(28, 24, 160, 80);      // GUIDE의 back과 동일 좌표
+        add(back);
+
+        back.addActionListener(e -> router.show(ScreenId.START));
+
         // SINGLE MODE 버튼 (왼쪽 핑크 캡슐 위)
         JButton single = new JButton("SINGLE MODE");
         single.setFont(new Font("Dialog", Font.BOLD, 22));
@@ -34,7 +46,8 @@ public class ModeSelectScreenUI extends JPanel {
 
         // 동작
         single.addActionListener(e -> router.show(ScreenId.GAME));                   // 싱글=현재 게임
-        dual.addActionListener(e -> router.show(ScreenId.RANKING));                  // 임시: 듀얼은 준비중 화면 대체 원하면 바꿔줘
+        dual.addActionListener(e -> router.show(ScreenId.VERSUS_GAME));
+        // 임시: 듀얼은 준비중 화면 대체 원하면 바꿔줘
         // ※ 듀얼을 나중에 구현하면 ScreenId.DUAL 같은 새 화면으로 연결하면 됨.
     }
 
@@ -49,7 +62,7 @@ public class ModeSelectScreenUI extends JPanel {
         b.setBorderPainted(false);
         b.setFocusPainted(false);
         b.setOpaque(false);
-        b.setForeground(Color.BLACK);
+        b.setForeground(new Color(0, 0, 0, 0));
         b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         // 중앙정렬 고정
         b.setHorizontalAlignment(SwingConstants.CENTER);

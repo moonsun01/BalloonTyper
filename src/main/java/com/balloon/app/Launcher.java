@@ -10,6 +10,8 @@ import com.balloon.ui.RankingScreenUI;    // ui/theme/RankingScreenUI.java
 import com.balloon.ui.GuideScreenUI;
 import com.balloon.ui.ModeSelectScreenUI;
 import com.balloon.ui.screens.ResultScreen;
+import com.balloon.ui.screens.VersusGamePanel;   // [ADD]
+
 
 import javax.swing.*;
 import java.awt.*;
@@ -23,12 +25,17 @@ public class Launcher {
         frame.setSize(1280, 720);
         frame.setLocationRelativeTo(null);
 
-
+// ★★★ 추가 1: 프레임/내용 영역 배경을 검정으로 통일 ★★★
+        frame.getContentPane().setBackground(Color.BLACK);
+        frame.setBackground(Color.BLACK);
 
         // ★ 1) 루트 패널을 직접 만들고, BorderLayout으로 전체 꽉 채우기
         JPanel rootPanel = new JPanel(new CardLayout());
         rootPanel.setBorder(null);                 // 여백 절대 없음
         rootPanel.setOpaque(true);
+
+        // ★★★ 추가 2: 루트 패널도 검정 배경 ★★★
+        rootPanel.setBackground(Color.BLACK);
 
         frame.setContentPane(rootPanel);
 
@@ -46,6 +53,9 @@ public class Launcher {
         router.register(ScreenId.GUIDE,   new GuideScreenUI(router));  // 임시 화면
         router.register(ScreenId.RANKING, new RankingScreenUI(router)); // ★ 여기 수정: () → (router)
         router.register(ScreenId.RESULT,  new ResultScreen(router));  // ★ 이 줄 필수
+
+        // [ADD] 2인용 게임 화면
+        router.register(ScreenId.VERSUS_GAME, new VersusGamePanel(router));
 
         // 첫 화면
         router.show(ScreenId.START);

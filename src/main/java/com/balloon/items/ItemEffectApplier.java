@@ -41,9 +41,9 @@ public class ItemEffectApplier {
                 uiApi.showToast("+5초! (남은시간: " + timeApi.getTimeLeft() + "s)");
                 uiApi.flashEffect(true);
             }
-            case TIME_MINUS_3 -> {
+            case TIME_MINUS_5 -> {
                 timeApi.addSeconds(-3);
-                uiApi.showToast("-3초… (남은시간: " + timeApi.getTimeLeft() + "s)");
+                uiApi.showToast("-5초… (남은시간: " + timeApi.getTimeLeft() + "s)");
                 uiApi.flashEffect(false);
             }
             case BALLOON_PLUS_2 -> {

@@ -3,8 +3,8 @@ package com.balloon.ui.screens;
 import com.balloon.core.GameMode;
 import com.balloon.core.ScreenId;
 import com.balloon.core.ScreenRouter;
-import com.balloon.data.CsvRankingRepository;
-import com.balloon.data.ScoreEntry;
+import com.balloon.ranking.RankingCsvRepository;
+import com.balloon.ranking.RankingRecord;
 import com.balloon.ui.assets.ImageAssets;
 
 import javax.swing.*;
@@ -242,7 +242,7 @@ public class ResultScreen extends JPanel {
      */
     public void setResult(int totalScore, double accuracyRatio, int timeLeft) {
         this.totalScore = totalScore;
-        this.accuracyPct = accuracyRatio * 100.0; // %로 변환
+        this.accuracyPct = accuracyRatio * 100.0; // 0~1 → %로 변환
         this.timeLeftSec = Math.max(0, timeLeft);
 
         // 스테이지에 맞는 배경 다시 선택
@@ -257,14 +257,18 @@ public class ResultScreen extends JPanel {
      *
      *   rs.setResult(...);
      *   rs.saveRanking(playerName, currentMode);
-     *
-     * 이런 식으로 호출하면 돼.
      */
     public void saveRanking(String playerName, GameMode mode) {
-        CsvRankingRepository repo = new CsvRankingRepository();
-        ScoreEntry entry = new ScoreEntry(playerName, totalScore, mode);
-        // 아래 append 메서드는 CsvRankingRepository에 추가(2번에서 코드 줌)
-        repo.append(entry);
+        RankingCsvRepository repo = new RankingCsvRepository();
+        // RankingRecord(String name, int score, double accuracy, int timeLeft, String mode)
+        RankingRecord record = new RankingRecord(
+                playerName,
+                totalScore,
+                accuracyPct,
+                timeLeftSec,
+                mode.name()          // GameMode → 문자열
+        );
+        repo.append(record);
     }
 
     // 기존 구조 유지 (사용 안 함)
@@ -289,10 +293,9 @@ public class ResultScreen extends JPanel {
     //  배경 선택 + 풍선 랜덤 배치
     // =====================================================
 
-    // ★ GamePanel은 같은 패키지(com.balloon.ui.screens)에 있다고 가정.
-    //   → import 필요 없음, 그냥 GamePanel.lastCompletedStage 사용.
+    // GamePanel은 같은 패키지(com.balloon.ui.screens)에 있다고 가정.
     private void updateBackgroundByStage() {
-        int stage = GamePanel.lastCompletedStage;   // GamePanel에 public static int lastCompletedStage; 가 있어야 함
+        int stage = GamePanel.lastCompletedStage;   // GamePanel에 public static int lastCompletedStage; 필요
 
         String imgName = switch (stage) {
             case 1 -> "bg_level1.png";
