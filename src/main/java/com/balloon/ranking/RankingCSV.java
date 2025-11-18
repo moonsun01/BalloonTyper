@@ -3,7 +3,6 @@ package com.balloon.ranking;                                     // CSV 입출�
 import java.io.*;                                                // 파일 IO 전반
 import java.nio.charset.StandardCharsets;                        // UTF-8 인코딩
 import java.util.*;                                              // List, Comparator
-// 정렬/파싱/보호용 유틸
 
 public final class RankingCSV {                                  // 유틸 클래스로 선언(인스턴스 불가)
     private RankingCSV() {}                                      // 생성자 감추기
