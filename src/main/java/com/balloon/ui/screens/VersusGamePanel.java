@@ -7,6 +7,8 @@ import com.balloon.core.Showable;
 import com.balloon.net.VersusClient;
 import com.balloon.ui.hud.HUDRenderer;
 
+
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
@@ -114,6 +116,7 @@ public class VersusGamePanel extends JPanel implements Showable {
             onEnterTyped(typed);
             inputField.setText("");
         });
+
 
         // ★ inputField 에 키 리스너 달기
         inputField.addKeyListener(new KeyAdapter() {
