@@ -342,6 +342,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         }
 
         // 풍선 + 텍스트
+        // 풍선 + 텍스트
         for (Balloon b : balloons) {
             if (b == null || !b.isActive()) continue;
 
@@ -360,10 +361,22 @@ public class VersusGamePanel extends JPanel implements Showable {
                 int tx = bx + (balloonSize - tw) / 2;
                 int ty = by + (balloonSize / 2) + fm.getAscent() / 2 - 4;
 
-                g2.setColor(Color.BLACK);
+                // ★ 아이템에 따라 텍스트 색 결정
+                Color textColor = Color.BLACK;
+                Item item = itemBalloons.get(b);
+                if (item != null) {
+                    switch (item.getKind()) {
+                        case BALLOON_PLUS_2 -> textColor = new Color(120, 160, 255);   // +2: 파란 느낌
+                        case BALLOON_MINUS_2 -> textColor = new Color(255, 110, 110);  // -2: 빨간 느낌
+                        default -> textColor = Color.BLACK;
+                    }
+                }
+                g2.setColor(textColor);
                 g2.drawString(text, tx, ty);
+
             }
         }
+
     }
 
     // 화면에 들어올 때
@@ -728,20 +741,17 @@ public class VersusGamePanel extends JPanel implements Showable {
     private void attachRandomItemToBalloon(String owner, Balloon b) {
         if (b == null) return;
 
-        double chance = 0.2;
+        double chance = 0.2; // 20% 확률로만 아이템 풍선
         if (rnd.nextDouble() > chance) {
             b.setCategory(ItemCategory.NONE);
             return;
         }
 
+        // ★ 듀얼 모드는 풍선 수 아이템만 사용
         ItemKind kind;
-        int r = rnd.nextInt(4);
+        int r = rnd.nextInt(2); // 0 또는 1만
 
         if (r == 0) {
-            kind = ItemKind.TIME_PLUS_5;
-        } else if (r == 1) {
-            kind = ItemKind.TIME_MINUS_5;
-        } else if (r == 2) {
             kind = ItemKind.BALLOON_PLUS_2;
         } else {
             kind = ItemKind.BALLOON_MINUS_2;
@@ -749,18 +759,11 @@ public class VersusGamePanel extends JPanel implements Showable {
 
         Item item = new Item(kind, 0, 0);
 
-        ItemCategory cat;
-        if (kind == ItemKind.TIME_PLUS_5 || kind == ItemKind.TIME_MINUS_5) {
-            cat = ItemCategory.TIME;
-        } else if (kind == ItemKind.BALLOON_PLUS_2 || kind == ItemKind.BALLOON_MINUS_2) {
-            cat = ItemCategory.BALLOON;
-        } else {
-            cat = ItemCategory.NONE;
-        }
-        b.setCategory(cat);
-
+        // 전부 BALLOON 카테고리
+        b.setCategory(ItemCategory.BALLOON);
         itemBalloons.put(b, item);
     }
+
 
     // who 쪽에 풍선 n개 랜덤 추가
     private void addRandomBalloonsTo(String who, int count) {
