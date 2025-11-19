@@ -59,6 +59,15 @@ public class VersusGamePanel extends JPanel implements Showable {
     private int p1Score = 0;
     private int p2Score = 0;
 
+    // [ADD] 듀얼 인트로 단계 관리
+    private enum IntroPhase {
+        NONE,       // 평소 상태 (인트로 없음)
+        MISSION,    // "상대보다 풍선을 먼저 터뜨리세요!"
+        START       // "START!"
+    }
+
+    private IntroPhase introPhase = IntroPhase.NONE;
+
     // 듀얼 룰(점수/정확도/올클리어/승패)
     private VersusGameRules rules;
     private static final int INITIAL_TIME_SECONDS = 60;   // 듀얼 기본 시간(지금은 사실상 미사용)
@@ -98,6 +107,7 @@ public class VersusGamePanel extends JPanel implements Showable {
     }
 
     private ResultState resultState = ResultState.NONE;
+
 
     // 결과 후 Retry/Home 오버레이 표시 여부
     private boolean showRetryOverlay = false;
@@ -445,12 +455,11 @@ public class VersusGamePanel extends JPanel implements Showable {
                 if (msg.startsWith("ROLE ")) {
                     String role = msg.substring(5).trim();
                     myRole = role;
-                } else if (msg.equals("START")) {
-                    SwingUtilities.invokeLater(() -> {
-                        started = true;
-                        repaint();
-                    });
-                } else if (msg.startsWith("POP ")) {
+                }
+                else if (msg.equals("START")) {
+                    SwingUtilities.invokeLater(() -> startIntroSequence());
+                }
+                else if (msg.startsWith("POP ")) {
                     String[] parts = msg.split(" ", 3);
                     if (parts.length == 3) {
                         String who = parts[1];
@@ -481,6 +490,39 @@ public class VersusGamePanel extends JPanel implements Showable {
             e.printStackTrace();
         }
     }
+
+    // START 수신 후: 미션 -> START! -> 입력 가능
+    private void startIntroSequence() {
+        started = true;
+        finished = false;
+
+        // 1단계: 미션 안내
+        introPhase = IntroPhase.MISSION;
+        inputField.setEnabled(false);
+        repaint();
+
+        // 2초 후 START!로 전환
+        javax.swing.Timer missionTimer = new javax.swing.Timer(2000, e -> {
+            introPhase = IntroPhase.START;
+            repaint();
+            ((javax.swing.Timer) e.getSource()).stop();
+
+            // START! 1초 후 입력 가능
+            javax.swing.Timer startTimer = new javax.swing.Timer(1000, e2 -> {
+                introPhase = IntroPhase.NONE;
+                inputField.setEnabled(true);
+                inputField.requestFocusInWindow();
+                repaint();
+                ((javax.swing.Timer) e2.getSource()).stop();
+            });
+            startTimer.setRepeats(false);
+            startTimer.start();
+        });
+
+        missionTimer.setRepeats(false);
+        missionTimer.start();
+    }
+
 
     // 서버에서 POP 수신
     private void onRemotePop(String who, String word) {
@@ -868,6 +910,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         return loadWordsFromResource(path, null, "WORD");
     }
 
+
     // HUD (Score만)
     private void drawHud(Graphics2D g2, int w, int h) {
         g2.setFont(HUDRenderer.HUD_FONT);
@@ -917,6 +960,46 @@ public class VersusGamePanel extends JPanel implements Showable {
             }
         }
     }
+
+    // [ADD] 듀얼 인트로(미션 안내 + START!) 표시
+    private void drawStartMessage(Graphics2D g2, int w, int h) {
+        if (introPhase == IntroPhase.NONE) return;
+
+        // 반투명 어두운 배경
+        Composite oldComp = g2.getComposite();
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.6f));
+        g2.setColor(Color.DARK_GRAY);
+        g2.fillRect(0, 0, w, h);
+        g2.setComposite(oldComp);
+
+        // 텍스트 설정
+        String text;
+        if (introPhase == IntroPhase.MISSION) {
+            text = "상대보다 풍선을 먼저 터뜨리세요!";
+        } else { // IntroPhase.START
+            text = "START!";
+        }
+
+        Font oldFont = g2.getFont();
+        Font msgFont = NAME_FONT.deriveFont(NAME_FONT.getSize2D() + 8.0f); // 좀 크게
+        g2.setFont(msgFont);
+        FontMetrics fm = g2.getFontMetrics();
+
+        int textW = fm.stringWidth(text);
+        int textH = fm.getAscent();
+
+        int centerX = w / 2;
+        int centerY = h / 2;
+
+        int x = centerX - textW / 2;
+        int y = centerY + textH / 2;
+
+        g2.setColor(Color.WHITE);
+        g2.drawString(text, x, y);
+
+        g2.setFont(oldFont);
+    }
+
 
     // 결과 오버레이
     private void drawResultOverlay(Graphics2D g2, int w, int h) {
@@ -1065,6 +1148,9 @@ public class VersusGamePanel extends JPanel implements Showable {
         drawBalloonCluster(g2, p1Balloons, centerLeft, h);
         drawBalloonCluster(g2, p2Balloons, centerRight, h);
 
+        // [ADD] 듀얼 시작 안내 문구
+        drawStartMessage(g2, w, h);
+
         drawResultOverlay(g2, w, h);
     }
 
@@ -1120,22 +1206,19 @@ public class VersusGamePanel extends JPanel implements Showable {
 
         ctx.setVersusSnapshot(snapshot);
 
-        resultState = state;
         finished = true;
-        showRetryOverlay = false;
-
         inputField.setEnabled(false);
         inputField.setVisible(false);
 
-        repaint();
+        // 네트워크 연결 정리(선택)
+        if (netClient != null) {
+            try {
+                netClient.close();
+            } catch (Exception ignore) {}
+        }
 
-        javax.swing.Timer t = new javax.swing.Timer(2000, e -> {
-            showRetryOverlay = true;
-            repaint();
-            ((javax.swing.Timer) e.getSource()).stop();
-        });
-        t.setRepeats(false);
-        t.start();
+        // 듀얼 결과 화면으로 바로 이동
+        router.show(ScreenId.RESULT);
     }
 
     // HOME 클릭
