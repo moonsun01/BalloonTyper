@@ -49,14 +49,14 @@ public class ItemEffectApplier {
             case BALLOON_PLUS_2 -> {
                 new javax.swing.Timer(400, e -> {
                     fieldApi.addBalloons(2);
-                    uiApi.showToast("풍선+2");
+                    uiApi.showToast("풍선+2!");
                     uiApi.flashEffect(true);
                 }) {{ setRepeats(false); start(); }};
             }
             case BALLOON_MINUS_2 -> {
                 new javax.swing.Timer(400, e -> {
                     fieldApi.removeBalloons(2);
-                    uiApi.showToast("풍선-2");
+                    uiApi.showToast("풍선-2!");
                     uiApi.flashEffect(false);
                 }) {{ setRepeats(false); start(); }};
             }

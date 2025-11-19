@@ -54,4 +54,11 @@ public class GameState {
     public void addSeconds(int delta) {
         timeLeft = Math.max(0, timeLeft + delta);
     }
+
+    public void reset() {
+        this.level = 1;
+        this.totalScore = 0;
+        this.lives = 3;
+        this.timeLeft = config.getInitialTime(level);
+    }
 }
