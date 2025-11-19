@@ -57,16 +57,16 @@ public class ItemEffectApplier {
                 // ★ 여기: 상대 풍선 2개 추가
                 if (fieldApi != null) fieldApi.addBalloons(2);
                 if (uiApi != null) {
-                    uiApi.showToast("상대 풍선 +2!");
-                    uiApi.flashEffect(false);    // 나한테는 안 좋은 효과니까 false
+                    uiApi.showToast("풍선 +2!");
+                    uiApi.flashEffect(false);
                 }
             }
             case BALLOON_MINUS_2 -> {
                 // ★ 여기: 내 풍선 2개 제거
                 if (fieldApi != null) fieldApi.removeBalloons(2);
                 if (uiApi != null) {
-                    uiApi.showToast("내 풍선 -2!");
-                    uiApi.flashEffect(true);     // 나한텐 좋은 효과니까 true
+                    uiApi.showToast("풍선 -2!");
+                    uiApi.flashEffect(true);
                 }
             }
             default -> {

@@ -44,7 +44,7 @@ public class GamePanel extends JPanel implements Showable {
 
     // ====== Game / State / Item ======
     private final LevelConfig levelConfig = new LevelConfig();
-    private final GameState state = new GameState(levelConfig);
+    private GameState state;
     private final ItemSpawner spawner = new ItemSpawner();
 
     // 안내 오버레이용 상태
@@ -216,6 +216,9 @@ public class GamePanel extends JPanel implements Showable {
 
     public GamePanel(ScreenRouter router) {
         this.router = router;
+
+        // 🔥 여기서 처음 GameState 생성
+        this.state = new GameState(levelConfig);
 
         // ★★★ 전체 패널(게임 화면)의 레이아웃/배경 설정 ★★★
         setLayout(new BorderLayout());   // 위(HUD) / 가운데(PlayField) / 아래(입력창) 배치
@@ -754,6 +757,54 @@ public class GamePanel extends JPanel implements Showable {
         }};
     }
 
+    /** 싱글모드를 완전히 처음부터 다시 시작할 때 호출 */
+    private void resetGameForNewRun() {
+        // 1) 타이머/루프/인트로 상태 정리
+        stopGameLoops();                    // tickTimer, playField 정지
+        if (overlayTimer.isRunning()) overlayTimer.stop();
+        if (levelIntroTimer.isRunning()) levelIntroTimer.stop();
+
+        levelIntroShowing = false;
+        stageClearedThisRound = false;
+        resultShown = false;
+        showingResult = false;
+        navigatedAway = false;
+
+        // 2) 점수/카운트 리셋
+        correctCount = 0;
+        wrongCount = 0;
+        wordScore = 0;
+        timeBonus = 0;
+        itemBonus = 0;
+        totalScore = 0;
+
+        // 3) GameState 새로 생성 (레벨 1, life 3, 초기시간)
+        state = new GameState(levelConfig);
+
+        // 4) 배경/풍선 다시 세팅
+        applyStageBackground(state.getLevel());
+        reloadStageBalloons();   // balloons + sprites 다시 채우기
+
+        // 오버레이/라벨 정리
+        wordLabel.setVisible(false);
+        wordLabel.setIcon(null);
+        wordLabel.setText("");
+        wordLabel.setOpaque(false);
+        wordLabel.setBackground(null);
+
+        toastLabel.setText(" ");
+
+        // HUD 갱신
+        refreshHUD();
+        updateContextHud();
+
+        // 5) 다시 첫 진입처럼 레벨 인트로부터 시작
+        firstShown = false;              // 이미 여기서 직접 인트로 띄울 거라 true일 필요 없음
+        showLevelIntroForCurrentStage(); // gray.png + Level 안내
+        grabFocusSafely();
+    }
+
+
     private void onStageFailed() {
         stopGameLoops();
 
@@ -897,38 +948,36 @@ public class GamePanel extends JPanel implements Showable {
         navigatedAway = false;
         updateContextHud();   // HUD는 항상 최신으로
 
-        // 1) 이미 레벨 인트로(회색 gray 박스)가 떠 있는 중이면
-        //    → 타이머/플레이는 건들지 말고 포커스만.
+        // 1) 이전에 한 번 게임이 끝났던 상태라면 → 완전 리셋해서 새 게임 시작
+        //  - resultShown == true (SUCCESS/FAIL 화면까지 갔던 상태)
+        //  - 또는 GameState 기준으로 이미 게임오버 상태
+        if (resultShown || state.isGameOver()) {
+            resetGameForNewRun();
+            return;
+        }
+
+        // 2) 레벨 인트로(gray 박스)가 떠 있는 중이면: 타이머 건드리지 말고 포커스만
         if (levelIntroShowing) {
             grabFocusSafely();
             return;
         }
 
-        // 2) SINGLE MODE 처음 들어온 상황: Level1 인트로 띄우기
-        //   - level == 1
-        //   - 아직 결과 화면 간 적 없음(resultShown == false)
-        //   - 풍선 리스트가 비어있다(balloons.isEmpty()) → 완전 첫 진입일 때만
-//        if (state.getLevel() == 1 && !resultShown && balloons.isEmpty()) {
-//            showLevelIntroForCurrentStage();
-//            grabFocusSafely();
-//            return;
-//        }
-
+        // 3) 완전 최초 진입(처음 싱글 들어올 때만): Level 1 인트로 띄우기
         if (firstShown && state.getLevel() == 1 && !resultShown) {
-            firstShown = false;              // 이제부터는 다시 안 띄움
-            showLevelIntroForCurrentStage(); // gray.png 안내
+            firstShown = false;
+            showLevelIntroForCurrentStage();
             grabFocusSafely();
             return;
         }
 
-        // 3) 그 외에는 그냥 게임 재개
+        // 4) 그 외에는 그냥 게임 재개
         if (!tickTimer.isRunning()) {
             tickTimer.start();
         }
-        //playField.start();
-
+        playField.start();   // 혹시 멈춰있다면 재시작
         grabFocusSafely();
     }
+
 
 
     public void onHidden() {
