@@ -16,8 +16,16 @@ public class GameState {
     public GameState(LevelConfig config) {
         this.level = 1;                                     // 시작레벨 1
         this.totalScore = 0;                                // 시작 점수 0점
-        this.lives = 3;                                      // 시작 생명 3개
+        this.lives = 3;                                     // 시작 생명 3개
         this.config = config;
+        this.timeLeft = config.getInitialTime(level);
+    }
+
+    // 싱글 게임을 완전히 처음 상태로 되돌릴 때 사용
+    public void resetForNewSingleGame() {
+        this.level = 1;
+        this.totalScore = 0;
+        this.lives = 3;
         this.timeLeft = config.getInitialTime(level);
     }
 
