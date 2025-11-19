@@ -23,6 +23,7 @@ public class Launcher {
         JFrame frame = new JFrame("Balloon Typer");
         frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         frame.setSize(1280, 720);
+        frame.setResizable(false);          // ★ 여기 추가: 창 크기 고정
         frame.setLocationRelativeTo(null);
 
 // ★★★ 추가 1: 프레임/내용 영역 배경을 검정으로 통일 ★★★

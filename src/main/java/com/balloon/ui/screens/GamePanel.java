@@ -40,6 +40,10 @@ import com.balloon.game.NonRepeatingWordProvider;
  */
 public class GamePanel extends JPanel implements Showable {
 
+    // [NEW] 기준 해상도 (지금 디자인한 사이즈)
+    private static final int BASE_WIDTH  = 1280;
+    private static final int BASE_HEIGHT = 720;
+
     private JLayeredPane layeredPane;
 
     // ====== Game / State / Item ======
@@ -467,7 +471,7 @@ public class GamePanel extends JPanel implements Showable {
 
         //tickTimer.start();
 
-        showLevelIntroForCurrentStage();
+        //showLevelIntroForCurrentStage();
     }
 
     // --------------------------------------------------
@@ -935,6 +939,12 @@ public class GamePanel extends JPanel implements Showable {
         navigatedAway = true;
         stopGameLoops();
         if (overlayTimer.isRunning()) overlayTimer.stop();
+
+        // ★ 추가: 인트로 타이머도 멈추기
+        if (levelIntroTimer != null && levelIntroTimer.isRunning()) {
+            levelIntroTimer.stop();
+        }
+        levelIntroShowing = false;
     }
 
     // --------------------------------------------------
@@ -1471,6 +1481,11 @@ public class GamePanel extends JPanel implements Showable {
         wordLabel.setText("");
         wordLabel.setOpaque(false);
         wordLabel.setBackground(null);
+
+        // ★ 만약 이미 다른 화면으로 나가버렸다면, 여기서 끝내기
+        if (navigatedAway) {
+            return;
+        }
 
         // ★★★ 인트로 종료 후 게임 시작 ★★★
         playField.start();                   // 풍선 낙하 시작
