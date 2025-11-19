@@ -864,6 +864,68 @@ public class GamePanel extends JPanel implements Showable {
 
         wordLabel.setText(html);
         wordLabel.setForeground(mainColor);
+        wordLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        wordLabel.setVerticalAlignment(SwingConstants.CENTER);
+        wordLabel.setIcon(null);
+        wordLabel.setOpaque(false);
+        wordLabel.setBackground(null);
+        wordLabel.setVisible(true);
+
+        // 약간 깔끔하게 보이도록 토스트/오버레이 정리
+        toastLabel.setText(" ");
+        //overlayLabel.setVisible(false);
+
+        // 3초 뒤 RANKING 화면으로 이동
+        new javax.swing.Timer(3000, e -> {
+            ((javax.swing.Timer) e.getSource()).stop();
+
+            if (router != null) {
+                try {
+                    router.show(ScreenId.RANKING);  // ★ RANKING 화면으로 이동
+                } catch (Exception ex) {
+                    System.err.println("[GamePanel] ranking navigation error: " + ex);
+                }
+            }
+        }) {{
+            setRepeats(false);
+            start();
+        }};
+    }
+
+    @Override
+    public void onShown() {
+        navigatedAway = false;
+        updateContextHud();   // HUD는 항상 최신으로
+
+        // 1) 이미 레벨 인트로(회색 gray 박스)가 떠 있는 중이면
+        //    → 타이머/플레이는 건들지 말고 포커스만.
+        if (levelIntroShowing) {
+            grabFocusSafely();
+            return;
+        }
+
+        // 2) SINGLE MODE 처음 들어온 상황: Level1 인트로 띄우기
+        //   - level == 1
+        //   - 아직 결과 화면 간 적 없음(resultShown == false)
+        //   - 풍선 리스트가 비어있다(balloons.isEmpty()) → 완전 첫 진입일 때만
+//        if (state.getLevel() == 1 && !resultShown && balloons.isEmpty()) {
+//            showLevelIntroForCurrentStage();
+//            grabFocusSafely();
+//            return;
+//        }
+
+        if (firstShown && state.getLevel() == 1 && !resultShown) {
+            firstShown = false;              // 이제부터는 다시 안 띄움
+            showLevelIntroForCurrentStage(); // gray.png 안내
+            grabFocusSafely();
+            return;
+        }
+
+        // 3) 그 외에는 그냥 게임 재개
+        if (!tickTimer.isRunning()) {
+            tickTimer.start();
+        }
+        //playField.start();
 
         grabFocusSafely();
     }

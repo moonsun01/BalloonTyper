@@ -1,8 +1,8 @@
 package com.balloon.ui;
 
 import com.balloon.core.ScreenId;
-import com.balloon.core.Showable;
 import com.balloon.core.ScreenRouter;
+import com.balloon.core.Showable;
 
 import com.balloon.ranking.RankingCsvRepository;
 import com.balloon.ranking.RankingRecord;
@@ -11,21 +11,28 @@ import com.balloon.ranking.RankingTableModel;
 import com.balloon.ui.assets.ImageAssets;
 import com.balloon.ui.hud.HUDRenderer;
 
-
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.table.*;
-import javax.swing.RowSorter.SortKey;
-import javax.swing.SortOrder;
+import javax.swing.plaf.basic.BasicScrollBarUI;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.JTableHeader;
+import javax.swing.table.TableColumnModel;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
+import java.awt.Adjustable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
 /**
- * RankingScreenUI
- * - ranking.png 전체 이미지를 배경으로 쓰고,
- *   그 위에 rank / NAME / SCORE / accuracy 4개 컬럼만 표시.
+ * 랭킹 화면 UI
+ * - 배경: Ranking_.png
+ * - 가운데 투명한 픽셀 카드 안에 테이블 표시
  */
 public class RankingScreenUI extends JPanel implements Showable {
 
@@ -34,174 +41,343 @@ public class RankingScreenUI extends JPanel implements Showable {
     private JTable table;
     private RankingTableModel tableModel;
 
-    // 배경 이미지(ranking.png)
-    private Image bgImage;
+    private final Image background;
+
+    // 마우스가 올라간 행(뷰 인덱스), 없으면 -1
+    private int hoverRow = -1;
 
     public RankingScreenUI(ScreenRouter router) {
         this.router = router;
+        this.background = ImageAssets.load("Ranking_.png");
 
-        // 배경 이미지 로드
-        bgImage = ImageAssets.load("ranking.png");
+        setLayout(new BorderLayout());
+        setOpaque(false);
 
         buildUI();
         loadDataAndSort();
     }
 
-    // 패널 배경에 ranking.png 깔기
+    // 배경 그리기
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        if (bgImage != null) {
-            g.drawImage(bgImage, 0, 0, getWidth(), getHeight(), this);
-        } else {
-            g.setColor(new Color(180, 210, 230));
-            g.fillRect(0, 0, getWidth(), getHeight());
+        if (background != null) {
+            g.drawImage(background, 0, 0, getWidth(), getHeight(), this);
         }
     }
 
     private void buildUI() {
-        setLayout(new BorderLayout());
-        setOpaque(false);
-
-        // ===== 상단 : 오른쪽 위에 "뒤로" 버튼만 =====
+        // 상단 Back 버튼 레이어
         JPanel top = new JPanel(null);
         top.setOpaque(false);
         top.setPreferredSize(new Dimension(1280, 120));
 
-        // ← GUIDE의 Back 투명 버튼과 같은 코드
-        JButton back = new JButton("BACK"); // 접근성용 라벨 (실제로는 안 보이게)
-        styleTransparent(back);             // ★ 아래에 새로 추가할 메서드 호출
-        back.setBounds(28, 24, 160, 80);    // ★ GUIDE와 동일한 좌표/크기
-        back.setBorder(new EmptyBorder(0, 0, 0, 0));
-        back.addActionListener(e -> router.show(ScreenId.START));
+        JButton back = new JButton("BACK");
+        styleTransparent(back);
+        back.setBounds(30, 15, 200, 80);
+        back.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                router.show(ScreenId.START);
+            }
+        });
         top.add(back);
 
         add(top, BorderLayout.NORTH);
 
-        // ===== 테이블 생성(4 컬럼) =====
-        tableModel = new RankingTableModel(List.of());
+        // 가운데 카드 래퍼
+        JPanel centerWrapper = new JPanel(new GridBagLayout());
+        centerWrapper.setOpaque(false);
+
+        JPanel card = new PixelCardPanel();
+        card.setOpaque(false);
+        card.setLayout(new BorderLayout());
+        card.setPreferredSize(new Dimension(950, 520));
+        card.setBorder(new EmptyBorder(20, 24, 22, 24));
+
+        // 테이블 + 모델
+        tableModel = new RankingTableModel(new ArrayList<>());
         table = new JTable(tableModel);
-
-        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-
         table.setFillsViewportHeight(true);
-        table.setRowHeight(32);
-        table.setAutoCreateRowSorter(true);
-
-        // ★ 여기 추가: 랭킹 셀에 쓸 폰트 (HUD 폰트에서 조금 키워서)
-        Font cellFont = HUDRenderer.HUD_FONT.deriveFont(17f);
-
-
-        // 헤더는 ranking.png 안에 이미 그려져 있으니 숨김
-        table.setTableHeader(null);
-
-        // 그리드 라인 제거 (이미지에 있는 선만 사용)
+        table.setRowHeight(36);
         table.setShowGrid(false);
         table.setIntercellSpacing(new Dimension(0, 0));
-
-        // 투명 처리: 배경 이미지를 그대로 보이게
+        table.setAutoCreateRowSorter(true);
         table.setOpaque(false);
 
-        // 공통 렌더러(흰 글씨, 투명 배경)
+        // 선택 색 없애기 (파란 테두리, 파란 배경 제거)
+        table.setRowSelectionAllowed(false);
+        table.setColumnSelectionAllowed(false);
+        table.setCellSelectionEnabled(false);
+        table.setSelectionBackground(new Color(0, 0, 0, 0));
+        table.setSelectionForeground(table.getForeground());
+
+        // 기본 폰트 (HUD 폰트 있으면 사용)
+        final Font baseFont;
+        Font tmp = table.getFont();
+        try {
+            if (HUDRenderer.HUD_FONT != null) {
+                tmp = HUDRenderer.HUD_FONT.deriveFont(22f);
+            }
+        } catch (Throwable ignore) {
+        }
+        baseFont = tmp;
+        table.setFont(baseFont);
+
+        // 헤더 스타일 (흰색, 모두 대문자 텍스트)
+        JTableHeader header = table.getTableHeader();
+        header.setReorderingAllowed(false);
+        header.setResizingAllowed(false);
+        header.setOpaque(true);
+        header.setBackground(Color.WHITE);
+        header.setForeground(Color.BLACK);
+        header.setBorder(BorderFactory.createMatteBorder(
+                0, 0, 1, 0, new Color(180, 200, 230)));
+
+        // 헤더 렌더러: 가운데 정렬, 글씨 약간 작게
+        DefaultTableCellRenderer headerRenderer = new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable tbl, Object value, boolean isSelected,
+                    boolean hasFocus, int row, int column) {
+
+                super.getTableCellRendererComponent(tbl, value, isSelected, false, row, column);
+                setHorizontalAlignment(SwingConstants.CENTER);
+                setBackground(Color.WHITE);
+                setForeground(Color.BLACK);
+                setFont(baseFont.deriveFont(Font.BOLD, 20f));
+                setBorder(BorderFactory.createMatteBorder(
+                        0, 0, 1, 0, new Color(180, 200, 230)));
+                return this;
+            }
+        };
+
+        TableColumnModel colModel = table.getColumnModel();
+        colModel.getColumn(0).setHeaderValue("RANK");
+        colModel.getColumn(1).setHeaderValue("NAME");
+        colModel.getColumn(2).setHeaderValue("SCORE");
+        colModel.getColumn(3).setHeaderValue("ACCURACY");
+
+        for (int i = 0; i < colModel.getColumnCount(); i++) {
+            colModel.getColumn(i).setHeaderRenderer(headerRenderer);
+        }
+
+        // 컬럼 폭
+        colModel.getColumn(0).setPreferredWidth(80);
+        colModel.getColumn(1).setPreferredWidth(260);
+        colModel.getColumn(2).setPreferredWidth(220);
+        colModel.getColumn(3).setPreferredWidth(220);
+
+        // 공통 하이라이트 색
+        final Color highlight = new Color(255, 255, 200, 180);
+
+        // 기본 가운데 정렬 렌더러 (hover 색 처리 포함)
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(
-                    JTable tbl, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
-                super.getTableCellRendererComponent(tbl, value, isSelected, hasFocus, row, col);
+                    JTable tbl, Object value, boolean isSelected,
+                    boolean hasFocus, int row, int column) {
+
+                super.getTableCellRendererComponent(tbl, value, false, false, row, column);
                 setHorizontalAlignment(SwingConstants.CENTER);
-                setForeground(Color.WHITE);
-                setFont(cellFont);          // ★ 게임 폰트 적용
-                setOpaque(false);  // 배경 투명
-                setBorder(new EmptyBorder(0, 10, 0, 10)); // ★ 좌우 padding 살짝
+                setFont(baseFont);
+                setBorder(null);
+
+                if (row == hoverRow) {
+                    setOpaque(true);
+                    setBackground(highlight);
+                } else {
+                    setOpaque(false);
+                    setBackground(new Color(0, 0, 0, 0));
+                }
                 return this;
             }
         };
 
-        // 점수/정확도는 숫자니까 오른쪽 정렬로 약간 변경
-        DefaultTableCellRenderer rightRenderer = new DefaultTableCellRenderer() {
+        // accuracy 전용 렌더러 (정수면 정수, 아니면 소수 둘째자리, 가운데 정렬 + hover)
+        DefaultTableCellRenderer accuracyRenderer = new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(
-                    JTable tbl, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
-                super.getTableCellRendererComponent(tbl, value, isSelected, hasFocus, row, col);
-                setHorizontalAlignment(SwingConstants.RIGHT);
-                setForeground(Color.WHITE);
-                setFont(cellFont);          // ★ 동일 폰트
-                setOpaque(false);
-                setBorder(new EmptyBorder(0, 0, 0, 18));  // 오른쪽 여백 조금
+                    JTable tbl, Object value, boolean isSelected,
+                    boolean hasFocus, int row, int column) {
+
+                super.getTableCellRendererComponent(tbl, value, false, false, row, column);
+                setHorizontalAlignment(SwingConstants.CENTER);
+                setFont(baseFont);
+                setBorder(null);
+
+                if (value instanceof Number) {
+                    double d = ((Number) value).doubleValue();
+                    long rounded = Math.round(d);
+                    String text;
+                    if (Math.abs(d - rounded) < 1e-9) {
+                        text = String.valueOf(rounded);
+                    } else {
+                        text = String.format(Locale.US, "%.2f", d);
+                    }
+                    setText(text);
+                }
+
+                if (row == hoverRow) {
+                    setOpaque(true);
+                    setBackground(highlight);
+                } else {
+                    setOpaque(false);
+                    setBackground(new Color(0, 0, 0, 0));
+                }
                 return this;
             }
         };
 
-        TableColumnModel cols = table.getColumnModel();
-        // 컬럼 폭은 ranking.png 안의 표에 맞게 대략 조정 (필요하면 수치 조금씩 수정)
-        cols.getColumn(0).setPreferredWidth(200);   // rank
-        cols.getColumn(1).setPreferredWidth(200);  // NAME
-        cols.getColumn(2).setPreferredWidth(225);  // SCORE
-        cols.getColumn(3).setPreferredWidth(220);  // accuracy
+        // 렌더러 적용 (모든 컬럼 가운데, accuracy는 전용 렌더러)
+        colModel.getColumn(0).setCellRenderer(centerRenderer);
+        colModel.getColumn(1).setCellRenderer(centerRenderer);
+        colModel.getColumn(2).setCellRenderer(centerRenderer);
+        colModel.getColumn(3).setCellRenderer(accuracyRenderer);
 
-        cols.getColumn(0).setCellRenderer(centerRenderer);
-        cols.getColumn(1).setCellRenderer(centerRenderer);
-        cols.getColumn(2).setCellRenderer(centerRenderer);
-        cols.getColumn(3).setCellRenderer(centerRenderer);
+        // 마우스 hover 로우 계산
+        table.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                int r = table.rowAtPoint(e.getPoint());
+                if (r != hoverRow) {
+                    hoverRow = r;
+                    table.repaint();
+                }
+            }
+        });
+        table.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (hoverRow != -1) {
+                    hoverRow = -1;
+                    table.repaint();
+                }
+            }
+        });
 
-        // 스크롤 패널도 투명 처리
+        // 스크롤팬
         JScrollPane scroll = new JScrollPane(table);
+        scroll.setBorder(null);
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
-        scroll.setBorder(null);
 
-        // ranking.png 안의 회색 큰 박스 위치에 맞게 여백 조정
-        // 필요하면 값(위, 왼쪽, 아래, 오른쪽)을 조금씩 바꿔서 맞추면 돼.
-        scroll.setBorder(BorderFactory.createEmptyBorder(130, 200, 120, 200));
+        // 커스텀 스크롤바 (픽셀 느낌)
+        JScrollBar vBar = scroll.getVerticalScrollBar();
+        vBar.setOpaque(false);
+        vBar.setUnitIncrement(16);
+        vBar.setUI(new PixelScrollBarUI());
 
-        add(scroll, BorderLayout.CENTER);
+        JScrollBar hBar = scroll.getHorizontalScrollBar();
+        hBar.setOpaque(false);
+        hBar.setUnitIncrement(16);
+        hBar.setUI(new PixelScrollBarUI());
+
+        card.add(scroll, BorderLayout.CENTER);
+        centerWrapper.add(card);
+
+        add(centerWrapper, BorderLayout.CENTER);
     }
 
     private void loadDataAndSort() {
         RankingCsvRepository repo = new RankingCsvRepository();
         List<RankingRecord> list = repo.loadAll();
 
-        // 점수↓ → 정확도↓ → 남은시간↓ → 이름↑ 정렬
-        list.sort(Comparator
-                .comparingInt(RankingRecord::getScore).reversed()
-                .thenComparing(Comparator.comparingDouble(RankingRecord::getAccuracy).reversed())
-                .thenComparing(Comparator.comparingInt(RankingRecord::getTimeLeft).reversed())
-                .thenComparing(RankingRecord::getName)
+        // 점수 ↓, 정확도 ↓, 남은 시간 ↓, 이름 ↑
+        list.sort(
+                Comparator.comparingInt(RankingRecord::getScore).reversed()
+                        .thenComparingDouble(RankingRecord::getAccuracy).reversed()
+                        .thenComparingInt(RankingRecord::getTimeLeft).reversed()
+                        .thenComparing(RankingRecord::getName)
         );
 
         tableModel.setData(list);
-
-        TableRowSorter<TableModel> sorter = new TableRowSorter<>(table.getModel());
-        sorter.setComparator(0, Comparator.comparingInt(o -> (Integer) o));   // rank
-        sorter.setComparator(2, Comparator.comparingInt(o -> (Integer) o));   // score
-        sorter.setComparator(3, Comparator.comparingDouble(o -> (Double) o)); // accuracy
-        table.setRowSorter(sorter);
-
-        List<SortKey> keys = new ArrayList<>();
-        keys.add(new SortKey(2, SortOrder.DESCENDING)); // SCORE
-        keys.add(new SortKey(3, SortOrder.DESCENDING)); // accuracy
-        sorter.setSortKeys(keys);
-        sorter.sort();
     }
 
     @Override
     public void onShown() {
-        loadDataAndSort();  // 매번 들어올 때 최신 CSV 다시 읽기
+        loadDataAndSort();
     }
 
     @Override
     public void onHidden() {
     }
 
-    // ★ GUIDE 화면과 동일한 투명 버튼 스타일
+    // 투명 Back 버튼 스타일
     private void styleTransparent(JButton b) {
         b.setContentAreaFilled(false);
         b.setBorderPainted(false);
         b.setFocusPainted(false);
         b.setOpaque(false);
-        b.setForeground(new Color(0, 0, 0, 0)); // 텍스트도 안 보이게
+        b.setForeground(new Color(0, 0, 0, 0));
         b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
     }
+
+    /**
+     * 가운데 카드 패널: 반투명 픽셀 테두리
+     */
+    private static class PixelCardPanel extends JPanel {
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON);
+
+            int w = getWidth();
+            int h = getHeight();
+
+            // 안쪽 밝은 틴트
+            g2.setColor(new Color(255, 255, 255, 150));
+            g2.fillRect(6, 6, w - 12, h - 12);
+
+            // 바깥 회색 픽셀 테두리
+            g2.setColor(new Color(200, 210, 230, 220));
+            g2.drawRect(4, 4, w - 9, h - 9);
+            g2.drawRect(5, 5, w - 11, h - 11);
+
+            g2.dispose();
+        }
+    }
+
+    /**
+     * 스크롤바 UI (픽셀 느낌 + 살짝 투명)
+     */
+    private static class PixelScrollBarUI extends BasicScrollBarUI {
+
+        @Override
+        protected void configureScrollBarColors() {
+            this.thumbColor = new Color(180, 200, 230, 190);
+            this.trackColor = new Color(0, 0, 0, 0);
+        }
+
+        @Override
+        public Dimension getPreferredSize(JComponent c) {
+            Dimension d = super.getPreferredSize(c);
+            if (scrollbar.getOrientation() == Adjustable.VERTICAL) {
+                return new Dimension(14, d.height);
+            } else {
+                return new Dimension(d.width, 14);
+            }
+        }
+
+        @Override
+        protected JButton createDecreaseButton(int orientation) {
+            return createZeroButton();
+        }
+
+        @Override
+        protected JButton createIncreaseButton(int orientation) {
+            return createZeroButton();
+        }
+
+        private JButton createZeroButton() {
+            JButton b = new JButton();
+            b.setPreferredSize(new Dimension(0, 0));
+            b.setMinimumSize(new Dimension(0, 0));
+            b.setMaximumSize(new Dimension(0, 0));
+            return b;
+        }
+    }
 }
-
-

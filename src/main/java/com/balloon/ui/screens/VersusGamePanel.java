@@ -104,10 +104,6 @@ public class VersusGamePanel extends JPanel implements Showable {
     private Rectangle retryRect = null;
     private Rectangle homeRect  = null;
 
-    // ★ Toast Message
-    private String currentToast = null;
-    private long toastEndTime = 0;
-
     // 풍선 구조 3·4·5·6·5·4·3
     private static final int[] ROW_STRUCTURE = {3, 4, 5, 6, 5, 4, 3};
 
@@ -267,6 +263,18 @@ public class VersusGamePanel extends JPanel implements Showable {
         }
     }
 
+    // 풍선 색상을 랜덤으로 선택 (RED / GREEN / BLUE)
+    private Balloon.Kind randomKind() {
+        // GamePanel의 toKind()를 보면 Kind가 RED / GREEN / BLUE 3개만 쓰이니까
+        Balloon.Kind[] kinds = {
+                Balloon.Kind.RED,
+                Balloon.Kind.GREEN,
+                Balloon.Kind.BLUE
+        };
+        return kinds[rnd.nextInt(kinds.length)];
+    }
+
+
     // 풍선 좌표 계산 (7줄 3·4·5·6·5·4·3)
     private java.util.List<Point> buildBalloonPositions(double anchorX, double anchorY) {
         java.util.List<Point> pos = new ArrayList<>();
@@ -342,17 +350,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                 int tx = bx + (balloonSize - tw) / 2;
                 int ty = by + (balloonSize / 2) + fm.getAscent() / 2 - 4;
 
-                // ★ Item Color Logic
-                Color textColor = Color.BLACK;
-                Item item = itemBalloons.get(b);
-                if (item != null) {
-                    switch (item.getKind()) {
-                        case BALLOON_PLUS_2 -> textColor = new Color(120, 160, 255);
-                        case BALLOON_MINUS_2 -> textColor = new Color(255, 110, 110);
-                        default -> textColor = Color.BLACK;
-                    }
-                }
-                g2.setColor(textColor);
+                g2.setColor(Color.BLACK);
                 g2.drawString(text, tx, ty);
             }
         }
@@ -394,21 +392,14 @@ public class VersusGamePanel extends JPanel implements Showable {
                     public int getTimeLeft() { return 0; }
                 },
                 // UI 효과: 일단 콘솔만
-                // UI 효과: Toast 표시
                 new ItemEffectApplier.UiApi() {
                     @Override
                     public void showToast(String message) {
-                        currentToast = message;
-                        toastEndTime = System.currentTimeMillis() + 1000; // 1초간 표시
-                        repaint();
-                        new javax.swing.Timer(1050, e -> {
-                            ((javax.swing.Timer)e.getSource()).stop();
-                            repaint();
-                        }).start();
+                        System.out.println("[ITEM] " + message);
                     }
                     @Override
                     public void flashEffect(boolean positive) {
-                        // Flash effect omitted
+                        System.out.println(positive ? "[ITEM] GOOD" : "[ITEM] BAD");
                     }
                 },
                 // 필드 조작: 상대 풍선 추가/내 풍선 제거
@@ -661,7 +652,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     word,
                     p.x,
                     p.y,
-                    Balloon.Kind.RED
+                    randomKind()
             );
             p1Balloons.add(b);
             attachRandomItemToBalloon("P1", b);
@@ -681,7 +672,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     word,
                     p.x,
                     p.y,
-                    Balloon.Kind.RED
+                    randomKind()
             );
             p2Balloons.add(b);
             attachRandomItemToBalloon("P2", b);
@@ -768,7 +759,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     word,
                     p.x,
                     p.y,
-                    Balloon.Kind.RED
+                    randomKind()
             );
             list.add(b);
 
@@ -1075,30 +1066,6 @@ public class VersusGamePanel extends JPanel implements Showable {
         drawBalloonCluster(g2, p2Balloons, centerRight, h);
 
         drawResultOverlay(g2, w, h);
-        drawToast(g2, w, h);
-    }
-
-    private void drawToast(Graphics2D g2, int w, int h) {
-        if (currentToast == null || System.currentTimeMillis() > toastEndTime) {
-            currentToast = null;
-            return;
-        }
-
-        g2.setFont(new Font("Dialog", Font.BOLD, 32));
-        FontMetrics fm = g2.getFontMetrics();
-        int tw = fm.stringWidth(currentToast);
-        int th = fm.getHeight();
-
-        int x = (w - tw) / 2;
-        int y = h / 2 - 50; // Slightly above center
-
-        // Background box
-        g2.setColor(new Color(0, 0, 0, 180));
-        g2.fillRoundRect(x - 20, y - th, tw + 40, th + 20, 20, 20);
-
-        // Text
-        g2.setColor(new Color(255, 240, 180));
-        g2.drawString(currentToast, x, y);
     }
 
     // 결과 연출 + GameContext에 결과 스냅샷 기록
