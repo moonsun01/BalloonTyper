@@ -203,5 +203,3 @@ public class RankingScreenUI extends JPanel implements Showable {
         b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
     }
 }
-
-
