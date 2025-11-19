@@ -263,6 +263,18 @@ public class VersusGamePanel extends JPanel implements Showable {
         }
     }
 
+    // 풍선 색상을 랜덤으로 선택 (RED / GREEN / BLUE)
+    private Balloon.Kind randomKind() {
+        // GamePanel의 toKind()를 보면 Kind가 RED / GREEN / BLUE 3개만 쓰이니까
+        Balloon.Kind[] kinds = {
+                Balloon.Kind.RED,
+                Balloon.Kind.GREEN,
+                Balloon.Kind.BLUE
+        };
+        return kinds[rnd.nextInt(kinds.length)];
+    }
+
+
     // 풍선 좌표 계산 (7줄 3·4·5·6·5·4·3)
     private java.util.List<Point> buildBalloonPositions(double anchorX, double anchorY) {
         java.util.List<Point> pos = new ArrayList<>();
@@ -640,7 +652,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     word,
                     p.x,
                     p.y,
-                    Balloon.Kind.RED
+                    randomKind()
             );
             p1Balloons.add(b);
             attachRandomItemToBalloon("P1", b);
@@ -660,7 +672,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     word,
                     p.x,
                     p.y,
-                    Balloon.Kind.RED
+                    randomKind()
             );
             p2Balloons.add(b);
             attachRandomItemToBalloon("P2", b);
@@ -747,7 +759,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     word,
                     p.x,
                     p.y,
-                    Balloon.Kind.RED
+                    randomKind()
             );
             list.add(b);
 
