@@ -12,13 +12,14 @@ import com.balloon.ui.assets.BalloonSkins;
 import com.balloon.ui.assets.BalloonSkins.Skin;
 import com.balloon.ui.assets.ImageAssets;
 import com.balloon.ui.skin.SecretItemSkin;
+import com.balloon.core.GameContext;
+import com.balloon.core.GameContext.GameMode;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
@@ -72,11 +73,11 @@ public class GamePanel extends JPanel implements Showable {
     private final JLabel itemToastLabel = new JLabel("", SwingConstants.CENTER);
 
     // ===== [RESULT OVERLAY] 게임 종료 후 SUCCESS/FAIL + SCORE 표시용 =====
-    private JPanel resultOverlayPanel;   // 반투명 배경 패널
-    private JLabel resultTitleLabel;     // "SUCCESS" / "FAIL"
-    private JLabel resultScoreLabel;     // "SCORE : 12345"
-    private javax.swing.Timer resultTimer;  // 3초 뒤에 Ranking 화면으로 전환
-    private boolean showingResult = false;  // 오버레이 표시 여부
+    private JPanel resultOverlayPanel;   // (현재는 사용 안하지만 남겨둠)
+    private JLabel resultTitleLabel;
+    private JLabel resultScoreLabel;
+    private javax.swing.Timer resultTimer;
+    private boolean showingResult = false;
 
     // UI 콜백을 제공하는 Applier (시간/토스트/필드 조작)
     private final ItemEffectApplier applier = new ItemEffectApplier(
@@ -259,6 +260,7 @@ public class GamePanel extends JPanel implements Showable {
         legend.add(timeBadge);
         legend.add(balloonBadge);
 
+        topBar.add(hud, BorderLayout.CENTER);
         topBar.add(legend, BorderLayout.EAST);
 
         add(topBar, BorderLayout.NORTH);
@@ -863,13 +865,23 @@ public class GamePanel extends JPanel implements Showable {
 
         toastLabel.setText(" ");
 
-        // 3초 뒤 RANKING 화면으로 이동
+        // 3초 뒤 RANKING 화면으로 이동 (※ 싱글 모드에서만)
         new javax.swing.Timer(3000, e -> {
             ((javax.swing.Timer) e.getSource()).stop();
 
             if (router != null) {
                 try {
-                    router.show(ScreenId.RANKING);
+                    GameContext ctx = GameContext.getInstance();
+                    GameMode mode = ctx.getMode();
+
+                    if (mode == GameMode.SINGLE) {
+                        // 싱글 모드일 때만 랭킹 화면으로 이동
+                        router.show(ScreenId.RANKING);
+                    } else {
+                        // 듀얼(VERSUS) 모드일 때는 랭킹으로 가지 않음
+                        // 필요하면 START로 보내거나, 아무 것도 안 해도 됨
+                        // router.show(ScreenId.START);
+                    }
                 } catch (Exception ex) {
                     System.err.println("[GamePanel] ranking navigation error: " + ex);
                 }
@@ -878,6 +890,7 @@ public class GamePanel extends JPanel implements Showable {
             setRepeats(false);
             start();
         }};
+
     }
 
     @Override
@@ -885,29 +898,19 @@ public class GamePanel extends JPanel implements Showable {
         navigatedAway = false;
         updateContextHud();
 
-<<<<<<< HEAD
-        // 1) 이전에 한 번 게임이 끝났던 상태라면 → 완전 리셋해서 새 게임 시작
-        //  - resultShown == true (SUCCESS/FAIL 화면까지 갔던 상태)
-        //  - 또는 GameState 기준으로 이미 게임오버 상태
+        // 1) 이미 한 번 게임이 끝났던 상태라면 → 완전 리셋해서 새 게임 시작
         if (resultShown || state.isGameOver()) {
             resetGameForNewRun();
             return;
         }
 
         // 2) 레벨 인트로(gray 박스)가 떠 있는 중이면: 타이머 건드리지 말고 포커스만
-=======
-        // 이미 인트로 중이면 그냥 포커스만
->>>>>>> balloon/feature/timer-fix
         if (levelIntroShowing) {
             grabFocusSafely();
             return;
         }
 
-<<<<<<< HEAD
         // 3) 완전 최초 진입(처음 싱글 들어올 때만): Level 1 인트로 띄우기
-=======
-        // 처음 들어올 때 레벨1이면 인트로 표시
->>>>>>> balloon/feature/timer-fix
         if (firstShown && state.getLevel() == 1 && !resultShown) {
             firstShown = false;
             showLevelIntroForCurrentStage();
@@ -915,27 +918,14 @@ public class GamePanel extends JPanel implements Showable {
             return;
         }
 
-<<<<<<< HEAD
         // 4) 그 외에는 그냥 게임 재개
         if (!tickTimer.isRunning()) {
             tickTimer.start();
         }
-        playField.start();   // 혹시 멈춰있다면 재시작
+        playField.start();
         grabFocusSafely();
     }
 
-
-
-=======
-        // 그 외에는 그냥 게임 재개
-        if (!tickTimer.isRunning()) {
-            tickTimer.start();
-        }
-
-        grabFocusSafely();
-    }
-
->>>>>>> balloon/feature/timer-fix
     public void onHidden() {
         navigatedAway = true;
         stopGameLoops();

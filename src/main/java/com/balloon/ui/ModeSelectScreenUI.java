@@ -3,6 +3,8 @@ package com.balloon.ui;
 
 import com.balloon.core.ScreenId;
 import com.balloon.core.ScreenRouter;
+import com.balloon.core.GameContext;
+import com.balloon.core.GameContext.GameMode;
 
 import javax.swing.*;
 import java.awt.*;
@@ -45,10 +47,18 @@ public class ModeSelectScreenUI extends JPanel {
         add(dual);
 
         // 동작
-        single.addActionListener(e -> router.show(ScreenId.GAME));                   // 싱글=현재 게임
-        dual.addActionListener(e -> router.show(ScreenId.VERSUS_GAME));
-        // 임시: 듀얼은 준비중 화면 대체 원하면 바꿔줘
-        // ※ 듀얼을 나중에 구현하면 ScreenId.DUAL 같은 새 화면으로 연결하면 됨.
+        single.addActionListener(e -> {
+            GameContext ctx = GameContext.getInstance();
+            ctx.setMode(GameMode.SINGLE);          // ⭐ 싱글 모드 설정
+            router.show(ScreenId.GAME);
+        });
+
+        dual.addActionListener(e -> {
+            GameContext ctx = GameContext.getInstance();
+            ctx.setMode(GameMode.VERSUS);          // ⭐ 듀얼 모드 설정
+            router.show(ScreenId.VERSUS_GAME);
+        });
+
     }
 
     @Override

@@ -7,10 +7,13 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * 아주 단순한 2인용 서버 뼈대
- * - P1, P2 접속 대기
- * - 두 명 모두 JOIN 하면 START
- * - POP / FINISH 처리해서 양쪽에 브로드캐스트
+ * 2인용 듀얼 서버 (멀티 라운드 버전)
+ * - P1, P2 접속
+ * - JOIN 처리 후 ROLE, START 전송
+ * - 한 라운드 진행: POP / FINISH
+ * - RESULT 전송
+ * - 양쪽이 RETRY 보내면 새 라운드 다시 START
+ * - 누군가 끊기거나 EXIT 보내면 서버 종료
  */
 public class VersusServer {
 
@@ -45,79 +48,182 @@ public class VersusServer {
             Player p2 = new Player(server.accept(), "P2");
             System.out.println("[SERVER] P2 접속!");
 
-            // 3) 플레이어들의 JOIN 메시지 받기
+            // 3) JOIN 메시지 받기
             readJoin(p1);
             readJoin(p2);
 
-            // 역할 알려주기
+            // ROLE 알려주기 (한 번만)
             p1.out.println("ROLE P1");
             p2.out.println("ROLE P2");
 
-            // 4) START 브로드캐스트
-            broadcast(p1, p2, "START");
+            boolean keepPlaying = true;
 
-            // 5) 게임 상태
-            Set<String> poppedWords = new HashSet<>();
-            boolean finished = false;
-            String winnerRole = null;
+            // ====== 여러 라운드를 돌리는 메인 루프 ======
+            while (keepPlaying) {
 
-            // 6) 메인 루프: 두 플레이어의 메시지 처리
-            while (!finished) {
-                // P1 처리
-                if (p1.in.ready()) {
-                    String line = p1.in.readLine();
-                    if (line == null) break;
-                    if (line.startsWith("POP ")) {
-                        String word = line.substring(4).trim();
-                        if (poppedWords.add(word)) {
-                            broadcast(p1, p2, "POP P1 " + word);
+                // 4) 라운드 시작 알림
+                broadcast(p1, p2, "START");
+                System.out.println("[SERVER] === NEW ROUND START ===");
+
+                // 라운드 상태
+                Set<String> poppedWords = new HashSet<>();
+                boolean finished = false;
+                String winnerRole = null;
+
+                // 5) 라운드 메인 루프: POP / FINISH 처리
+                while (!finished) {
+
+                    // P1 처리
+                    if (p1.in.ready()) {
+                        String line = p1.in.readLine();
+                        if (line == null) {   // 클라 끊김
+                            keepPlaying = false;
+                            finished = true;
+                            winnerRole = null;
+                            break;
                         }
-                    } else if (line.equals("FINISH")) {
-                        winnerRole = "P1";
-                        finished = true;
+                        line = line.trim();
+                        System.out.println("[SERVER][P1] << " + line);
+
+                        if (line.startsWith("POP ")) {
+                            String word = line.substring(4).trim();
+                            if (poppedWords.add(word)) {
+                                broadcast(p1, p2, "POP P1 " + word);
+                            }
+                        } else if (line.equals("FINISH")) {
+                            if (!finished) {
+                                winnerRole = "P1";
+                            } else if ("P2".equals(winnerRole)) {
+                                // 거의 동시에 FINISH → 무승부
+                                winnerRole = "DRAW";
+                            }
+                            finished = true;
+                        } else if (line.equals("EXIT")) {
+                            keepPlaying = false;
+                            finished = true;
+                            winnerRole = null;
+                            break;
+                        }
                     }
+
+                    // P2 처리
+                    if (p2.in.ready()) {
+                        String line = p2.in.readLine();
+                        if (line == null) {
+                            keepPlaying = false;
+                            finished = true;
+                            winnerRole = null;
+                            break;
+                        }
+                        line = line.trim();
+                        System.out.println("[SERVER][P2] << " + line);
+
+                        if (line.startsWith("POP ")) {
+                            String word = line.substring(4).trim();
+                            if (poppedWords.add(word)) {
+                                broadcast(p1, p2, "POP P2 " + word);
+                            }
+                        } else if (line.equals("FINISH")) {
+                            if (!finished) {
+                                winnerRole = "P2";
+                            } else if ("P1".equals(winnerRole)) {
+                                winnerRole = "DRAW";
+                            }
+                            finished = true;
+                        } else if (line.equals("EXIT")) {
+                            keepPlaying = false;
+                            finished = true;
+                            winnerRole = null;
+                            break;
+                        }
+                    }
+
+                    Thread.sleep(10);
                 }
 
-                // P2 처리
-                if (p2.in.ready()) {
-                    String line = p2.in.readLine();
-                    if (line == null) break;
-                    if (line.startsWith("POP ")) {
-                        String word = line.substring(4).trim();
-                        if (poppedWords.add(word)) {
-                            broadcast(p1, p2, "POP P2 " + word);
-                        }
-                    } else if (line.equals("FINISH")) {
-                        if (!finished) {
-                            winnerRole = "P2";
-                        } else if ("P1".equals(winnerRole)) {
-                            // 이미 P1이 FINISH 했다면 동시 FINISH → 무승부 처리 가능
-                            winnerRole = "DRAW";
-                        }
-                        finished = true;
-                    }
+                // 라운드가 정상 종료 안 된 경우(끊김 등)
+                if (!keepPlaying || winnerRole == null) {
+                    System.out.println("[SERVER] 클라이언트 종료/에러로 게임 종료");
+                    break;
                 }
 
-                // 너무 CPU 안 쓰게 잠깐 쉼
-                Thread.sleep(10);
+                // 6) RESULT 전송
+                if ("P1".equals(winnerRole)) {
+                    p1.out.println("RESULT WIN");
+                    p2.out.println("RESULT LOSE");
+                } else if ("P2".equals(winnerRole)) {
+                    p1.out.println("RESULT LOSE");
+                    p2.out.println("RESULT WIN");
+                } else { // DRAW
+                    broadcast(p1, p2, "RESULT DRAW");
+                }
+
+                System.out.println("[SERVER] ROUND END. winner = " + winnerRole);
+
+                // 7) 양쪽이 RETRY 할지, 그만둘지 확인
+                boolean p1Retry = false;
+                boolean p2Retry = false;
+
+                System.out.println("[SERVER] WAITING FOR RETRY FROM BOTH...");
+
+                while (true) {
+                    // 둘 다 RETRY면 새 라운드
+                    if (p1Retry && p2Retry) {
+                        System.out.println("[SERVER] BOTH RETRY. NEXT ROUND.");
+                        break;
+                    }
+
+                    // P1 쪽 메시지
+                    if (p1.in.ready()) {
+                        String line = p1.in.readLine();
+                        if (line == null) {
+                            keepPlaying = false;
+                            break;
+                        }
+                        line = line.trim();
+                        System.out.println("[SERVER][P1] (post-result) << " + line);
+
+                        if (line.equals("RETRY")) {
+                            p1Retry = true;
+                        } else if (line.equals("EXIT")) {
+                            keepPlaying = false;
+                            break;
+                        }
+                    }
+
+                    // P2 쪽 메시지
+                    if (p2.in.ready()) {
+                        String line = p2.in.readLine();
+                        if (line == null) {
+                            keepPlaying = false;
+                            break;
+                        }
+                        line = line.trim();
+                        System.out.println("[SERVER][P2] (post-result) << " + line);
+
+                        if (line.equals("RETRY")) {
+                            p2Retry = true;
+                        } else if (line.equals("EXIT")) {
+                            keepPlaying = false;
+                            break;
+                        }
+                    }
+
+                    Thread.sleep(10);
+                }
+
+                if (!keepPlaying) {
+                    System.out.println("[SERVER] RETRY 안 함 / 종료 요청. 서버 종료.");
+                    break;
+                }
+
+                // 여기까지 왔으면 p1Retry && p2Retry == true
+                // → while(keepPlaying) 돌면서 새 라운드 시작
             }
 
-            // 7) 결과 전송
-            if ("P1".equals(winnerRole)) {
-                p1.out.println("RESULT WIN");
-                p2.out.println("RESULT LOSE");
-            } else if ("P2".equals(winnerRole)) {
-                p1.out.println("RESULT LOSE");
-                p2.out.println("RESULT WIN");
-            } else {
-                // 동시 Finish 등
-                broadcast(p1, p2, "RESULT DRAW");
-            }
-
-            System.out.println("[SERVER] 게임 종료. winner = " + winnerRole);
-
-            p1.socket.close();
-            p2.socket.close();
+            // 소켓 정리
+            try { p1.socket.close(); } catch (Exception ignore) {}
+            try { p2.socket.close(); } catch (Exception ignore) {}
         }
     }
 

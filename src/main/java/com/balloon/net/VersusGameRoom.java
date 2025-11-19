@@ -4,29 +4,33 @@ import com.balloon.game.VersusGameRules;
 
 import java.io.*;
 import java.net.Socket;
-import java.util.concurrent.*;
 
 /**
  * VersusGameRoom
  * - P1, P2 두 명이 붙는 듀얼 게임 방
- * - VersusGameRules를 사용해 시간/승패/무승부를 판정하고
- *   POP/RESULT 메시지를 클라이언트와 주고받는다.
+ * - 듀얼 요구사항:
+ *   - 타이머/시간으로 게임이 끝나지 않는다.
+ *   - 둘 중 먼저 풍선 다 터트리고 FINISH를 보내는 사람이 이김.
+ *   - 둘 다 거의 동시에 FINISH면 무승부.
  */
 public class VersusGameRoom implements Runnable {
 
-    private static final int INITIAL_TIME_SECONDS = 60;     // 시작 시간(난이도 조절 포인트)
+    private static final int INITIAL_TIME_SECONDS = 60;     // 지금은 승패에 영향 X (표시/로그용)
     private static final int SCORE_PER_POP = 10;            // 정답 한 번당 점수
 
     private final PlayerConn p1;
     private final PlayerConn p2;
 
+    // 서버 쪽에서는 점수/정확도 기록용으로만 사용 (승패 판정에는 사용하지 않음)
     private final VersusGameRules rules =
             new VersusGameRules(INITIAL_TIME_SECONDS);
 
-    private final ScheduledExecutorService scheduler =
-            Executors.newSingleThreadScheduledExecutor();
-
     private volatile boolean running = true;
+
+    // FINISH 여부
+    private volatile boolean p1Finished = false;
+    private volatile boolean p2Finished = false;
+    private volatile boolean resultSent = false;
 
     public VersusGameRoom(Socket s1, Socket s2,
                           String nickname1, String nickname2) throws IOException {
@@ -48,10 +52,8 @@ public class VersusGameRoom implements Runnable {
             // 2) 게임 시작 알림
             broadcast("START");
 
-            // 3) 1초마다 시간 감소 + 승패 판정
-            scheduler.scheduleAtFixedRate(this::onTick, 1, 1, TimeUnit.SECONDS);
 
-            // 4) 클라이언트 수신 루프 (각 플레이어 하나씩 스레드)
+            // 3) 클라이언트 수신 루프 (각 플레이어 하나씩 스레드)
             Thread t1 = new Thread(() -> listenLoop(p1, 1));
             Thread t2 = new Thread(() -> listenLoop(p2, 2));
             t1.start();
@@ -64,19 +66,6 @@ public class VersusGameRoom implements Runnable {
             e.printStackTrace();
         } finally {
             shutdown();
-        }
-    }
-
-    /** 1초마다 호출되는 타이머 콜백 */
-    private void onTick() {
-        if (!running) return;
-
-        rules.onTick();
-
-        VersusGameRules.Winner w = rules.getWinner();
-        if (w != VersusGameRules.Winner.NONE) {
-            // 승패 확정 → RESULT 전송 후 방 종료
-            sendResultAndStop(w);
         }
     }
 
@@ -94,8 +83,8 @@ public class VersusGameRoom implements Runnable {
                     handlePop(playerIndex, pc.role, word);
 
                 } else if (msg.equals("FINISH")) {
-                    // 클라가 "다 터트렸다"를 보내는 경우 (옵션)
-                    // TODO: 여기서 allCleared = true 로 rules.onPop()을 호출하는 식으로 확장 가능
+                    // 클라가 "다 터트렸다"를 알리는 메시지
+                    handleFinish(playerIndex);
 
                 } else if (msg.equals("RETRY")) {
                     // 나중에 재시작 로직 넣고 싶으면 여기서 처리
@@ -113,21 +102,47 @@ public class VersusGameRoom implements Runnable {
     private void handlePop(int playerIndex, String role, String word) {
         if (!running) return;
 
-        // TODO: allCleared는 나중에 '풍선 다 터진 상태'로 바꿀 것
+        // allCleared는 서버가 직접 몰라서 false로 둔다.
+        // (실제 allCleared는 클라 쪽에서 판단하고 FINISH를 보내게 함)
         boolean allCleared = false;
 
-        // 룰에 반영 (점수/정확도/올클리어 등)
+        // 점수/정확도 기록용
         rules.onPop(playerIndex, SCORE_PER_POP, allCleared);
 
         // 다른 쪽 클라이언트에게도 POP 알림
         // → VersusGamePanel.networkLoop()에서 "POP P1 hello" 형태로 처리 중
         broadcast("POP " + role + " " + word);
 
-        // POP으로 인해 즉시 승패가 결정됐을 수도 있으므로 한 번 체크
-        VersusGameRules.Winner w = rules.getWinner();
-        if (w != VersusGameRules.Winner.NONE) {
-            sendResultAndStop(w);
+    }
+
+    /** 클라이언트가 FINISH를 보냈을 때 처리 */
+    private synchronized void handleFinish(int playerIndex) {
+        if (!running || resultSent) return;
+
+        if (playerIndex == 1) {
+            p1Finished = true;
+        } else if (playerIndex == 2) {
+            p2Finished = true;
         }
+
+        VersusGameRules.Winner w = VersusGameRules.Winner.NONE;
+
+        if (p1Finished && p2Finished) {
+            // 두 명 모두 FINISH → 무승부
+            w = VersusGameRules.Winner.DRAW;
+        } else if (p1Finished && !p2Finished) {
+            // P1이 먼저 FINISH
+            w = VersusGameRules.Winner.P1;
+        } else if (!p1Finished && p2Finished) {
+            // P2가 먼저 FINISH
+            w = VersusGameRules.Winner.P2;
+        } else {
+            // 아직 한 명만도 FINISH 안 한 상태 → 아무것도 하지 않음
+            return;
+        }
+
+        resultSent = true;
+        sendResultAndStop(w);
     }
 
     /** 승패 결과를 클라이언트에 보내고 방 종료 */
@@ -170,9 +185,8 @@ public class VersusGameRoom implements Runnable {
 
     private void shutdown() {
         running = false;
-        scheduler.shutdownNow();
-        p1.close();
-        p2.close();
+        try { p1.close(); } catch (Exception ignore) {}
+        try { p2.close(); } catch (Exception ignore) {}
     }
 
     // --- 내부용 플레이어 연결 래퍼 ---
