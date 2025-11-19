@@ -54,7 +54,7 @@ public class ItemEffectApplier {
                 }
             }
             case BALLOON_PLUS_2 -> {
-                // ★ 여기: 상대 풍선 2개 추가
+                // 싱글/듀얼 공통: 풍선 +2 → 난이도 증가(부정적)
                 if (fieldApi != null) fieldApi.addBalloons(2);
                 if (uiApi != null) {
                     uiApi.showToast("풍선 +2!");
@@ -62,13 +62,14 @@ public class ItemEffectApplier {
                 }
             }
             case BALLOON_MINUS_2 -> {
-                // ★ 여기: 내 풍선 2개 제거
+                // 싱글/듀얼 공통: 풍선 -2 → 난이도 감소(긍정적)
                 if (fieldApi != null) fieldApi.removeBalloons(2);
                 if (uiApi != null) {
                     uiApi.showToast("풍선 -2!");
                     uiApi.flashEffect(true);
                 }
             }
+
             default -> {
                 // 아무것도 안 함
             }
