@@ -1,86 +1,127 @@
 package com.balloon.ui.screens;
 
+import com.balloon.core.GameMode;
 import com.balloon.core.ScreenId;
 import com.balloon.core.ScreenRouter;
+import com.balloon.ranking.RankingCsvRepository;
+import com.balloon.ranking.RankingRecord;
+import com.balloon.ui.assets.ImageAssets;
 
 import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
+import javax.swing.border.EmptyBorder;
+import javax.swing.plaf.basic.BasicButtonUI;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 
-/**
- * ResultScreen
- * - 점수 브레이크다운(단어/시간/정확도/아이템/총점) 테이블 표시
- * - GamePanel.showResult()에서 setResult()/setBreakdown()으로 값이 주입됨
- */
 public class ResultScreen extends JPanel {
 
     private final ScreenRouter router;
 
-    // 점수 항목
-    private int wordScore;      // 단어 정답으로 얻은 점수
-    private int timeScore;      // 남은 시간 점수(= timeBonus)
-    private int accuracyScore;  // 정확도 환산 점수(없으면 0 유지)
-    private int itemBonus;      // 아이템 보너스 합
-    private int totalScore;     // 총점
+    // ====== 결과 값 ======
+    private int totalScore;       // 누적 총점
+    private double accuracyPct;   // 정확도(%)
+    private int timeLeftSec;      // 남은 시간(초)
 
-    // 별도 표시용(정확도 %)
-    private double accuracyPct; // 0~100 (%)
+    // ====== UI 라벨 ======
+    private JLabel titleLabel;
+    private JLabel accuracyLabel;
+    private JLabel scoreLabel;
+    private JLabel timeLabel;
 
-    // UI
-    private JTable table;
-    private DefaultTableModel model;
-    private JLabel accLabel;
+    // ====== 배경 / 풍선 ======
+    private BufferedImage bgImage;
+    private final List<BalloonIcon> balloons = new ArrayList<>();
+    private final Random rnd = new Random();
 
-    // 기본 폰트 유틸(Theme 없이 동작)
-    private static Font fontM() {
-        Font base = UIManager.getFont("Label.font");
-        if (base == null) base = new Font("Dialog", Font.PLAIN, 12);
-        return base.deriveFont(14f);
-    }
+    // ====== 폰트 유틸 ======
     private static Font fontXL() {
         Font base = UIManager.getFont("Label.font");
         if (base == null) base = new Font("Dialog", Font.PLAIN, 12);
-        return base.deriveFont(Font.BOLD, 26f);
+        return base.deriveFont(Font.BOLD, 40f);
     }
 
+    private static Font fontBig() {
+        Font base = UIManager.getFont("Label.font");
+        if (base == null) base = new Font("Dialog", Font.PLAIN, 12);
+        return base.deriveFont(Font.BOLD, 36f);
+    }
+
+    private static Font fontM() {
+        Font base = UIManager.getFont("Label.font");
+        if (base == null) base = new Font("Dialog", Font.PLAIN, 12);
+        return base.deriveFont(Font.BOLD, 22f);
+    }
+
+    private static Font fontButton() {
+        Font base = UIManager.getFont("Button.font");
+        if (base == null) base = new Font("Dialog", Font.PLAIN, 12);
+        return base.deriveFont(Font.BOLD, 18f);
+    }
+
+    // =====================================================
+    //  생성자
+    // =====================================================
     public ResultScreen(ScreenRouter router) {
         this.router = router;
 
-        // 초기값(0)이라도 화면은 뜨도록
-        readFromContextSafely();
-
         setLayout(new BorderLayout());
-        setBackground(UIManager.getColor("Panel.background"));
+        setOpaque(false); // 배경 직접 그림
 
-        // 상단 타이틀
-        JLabel title = new JLabel("RESULT", SwingConstants.CENTER);
-        title.setFont(fontXL());
-        title.setBorder(BorderFactory.createEmptyBorder(24, 0, 12, 0));
-        add(title, BorderLayout.NORTH);
+        // 현재까지 클리어한 스테이지에 맞게 배경 이미지 선택
+        updateBackgroundByStage();
 
-        // 중앙: 정확도% 라벨 + 테이블
-        JPanel center = new JPanel(new BorderLayout());
+        // ---------- 상단 타이틀 ----------
+        titleLabel = new JLabel("RESULT", SwingConstants.CENTER);
+        titleLabel.setFont(fontXL());
+        titleLabel.setForeground(Color.WHITE);
+        titleLabel.setBorder(BorderFactory.createEmptyBorder(24, 0, 0, 0));
+        add(titleLabel, BorderLayout.NORTH);
+
+        // ---------- 중앙 정보 영역 ----------
+        JPanel center = new JPanel();
         center.setOpaque(false);
+        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
 
-        accLabel = new JLabel("", SwingConstants.RIGHT);
-        accLabel.setBorder(BorderFactory.createEmptyBorder(0, 12, 8, 12));
-        accLabel.setFont(fontM());
-        center.add(accLabel, BorderLayout.NORTH);
+        // 텍스트 블록을 조금 아래로
+        center.add(Box.createVerticalStrut(120));
 
-        table = buildBreakdownTable();
-        JScrollPane sp = new JScrollPane(table);
-        sp.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 12));
-        center.add(sp, BorderLayout.CENTER);
+        accuracyLabel = new JLabel("정확도: 0.0%", SwingConstants.CENTER);
+        accuracyLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        accuracyLabel.setFont(fontBig());
+        accuracyLabel.setForeground(Color.WHITE);
+
+        scoreLabel = new JLabel("총점: 0", SwingConstants.CENTER);
+        scoreLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        scoreLabel.setFont(fontBig());
+        scoreLabel.setForeground(Color.WHITE);
+
+        timeLabel = new JLabel("남은 시간: 0초", SwingConstants.CENTER);
+        timeLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        timeLabel.setFont(fontM());
+        timeLabel.setForeground(Color.WHITE);
+
+        center.add(accuracyLabel);
+        center.add(Box.createVerticalStrut(18));
+        center.add(scoreLabel);
+        center.add(Box.createVerticalStrut(12));
+        center.add(timeLabel);
+        center.add(Box.createVerticalGlue());
 
         add(center, BorderLayout.CENTER);
 
-        // 하단 버튼
-        JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 16));
+        // ---------- 하단 버튼 영역 ----------
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 24, 6));
         south.setOpaque(false);
+        south.setBorder(new EmptyBorder(0, 0, 20, 0));  // 버튼 살짝 위로
 
-        JButton toRanking = new JButton("랭킹 보기");
-        JButton retry     = new JButton("다시 하기");
-        JButton toMain    = new JButton("메인으로");
+        JButton toRanking = createCuteButton("랭킹 보기", new Color(255, 236, 236));
+        JButton retry     = createCuteButton("다시 하기", new Color(236, 255, 236));
+        JButton toMain    = createCuteButton("메인으로", new Color(232, 234, 255));
 
         toRanking.addActionListener(e -> router.show(ScreenId.RANKING));
         retry.addActionListener(e -> router.show(ScreenId.GAME));
@@ -92,129 +133,251 @@ public class ResultScreen extends JPanel {
 
         add(south, BorderLayout.SOUTH);
 
-        // 처음 표시 동기화
+        // 처음 한 번 라벨 업데이트
         refreshUI();
     }
 
-    // ---------------------------
-    // GamePanel에서 호출하는 메서드
-    // ---------------------------
+    // =====================================================
+    //  귀여운 버튼 + hover 애니메이션
+    // =====================================================
 
-    /** 총점/정확도%/남은시간(=timeScore) 주입 */
-    public void setResult(int totalScore, double accuracyRatio, int timeLeft) {
-        this.totalScore  = totalScore;
-        this.accuracyPct = accuracyRatio * 100.0; // 0~1 → %
-        this.timeScore   = Math.max(0, timeLeft); // 남은 시간 점수
+    private JButton createCuteButton(String text, Color bgColor) {
+        JButton btn = new JButton(text);
+        btn.setFont(fontButton());
+        btn.setForeground(new Color(40, 40, 60));
+        btn.setFocusPainted(false);
+        btn.setBorderPainted(false);
+        btn.setContentAreaFilled(false);
+        btn.setOpaque(false);
+        btn.setBorder(new EmptyBorder(10, 26, 10, 26));
 
-        refreshUI();
-    }
+        btn.putClientProperty("hoverProgress", 0.0f);
 
-    /** 브레이크다운 주입: 단어점수, 남은시간점수, 정확도점수, 아이템보너스 */
-    public void setBreakdown(int wordScore, int timeBonus, int accuracyScore, int itemBonus) {
-        this.wordScore     = wordScore;
-        this.timeScore     = timeBonus;     // timeScore는 timeBonus와 동일 의미로 사용
-        this.accuracyScore = accuracyScore; // 정확도 점수(없으면 0)
-        this.itemBonus     = itemBonus;
-
-        // 총점 재계산(안전)
-        int sum = wordScore + timeScore + accuracyScore + itemBonus;
-        if (sum > 0) this.totalScore = sum;
-
-        refreshUI();
-    }
-
-    // ---------------------------
-
-    private JTable buildBreakdownTable() {
-        String[] cols = {"항목", "점수"};
-        Object[][] rows = {
-                {"단어 점수",      0},
-                {"남은 시간 점수", 0},
-                {"정확도 점수",    0},
-                {"아이템 보너스",  0},
-                {"총점",           0}
-        };
-
-        model = new DefaultTableModel(rows, cols) {
-            @Override public boolean isCellEditable(int r, int c) { return false; }
-            @Override public Class<?> getColumnClass(int columnIndex) {
-                return columnIndex == 1 ? Integer.class : String.class;
-            }
-        };
-
-        JTable t = new JTable(model);
-        t.setRowHeight(28);
-        t.setFont(fontM());
-        t.getTableHeader().setFont(fontM().deriveFont(Font.BOLD));
-        t.setFillsViewportHeight(true);
-
-        // 총점 행 굵게
-        t.setDefaultRenderer(Object.class, new javax.swing.table.DefaultTableCellRenderer() {
+        btn.setUI(new BasicButtonUI() {
             @Override
-            public Component getTableCellRendererComponent(JTable tbl, Object v, boolean sel, boolean foc, int row, int col) {
-                Component c = super.getTableCellRendererComponent(tbl, v, sel, foc, row, col);
-                c.setFont(fontM());
-                if (row == tbl.getRowCount() - 1) {
-                    c.setFont(c.getFont().deriveFont(Font.BOLD));
-                }
-                return c;
+            public void paint(Graphics g, JComponent c) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                        RenderingHints.VALUE_ANTIALIAS_ON);
+
+                int w = c.getWidth();
+                int h = c.getHeight();
+
+                float p = (float) c.getClientProperty("hoverProgress");
+                if (Float.isNaN(p)) p = 0f;
+
+                // 1.0 ~ 1.06 정도로 살짝 커지게
+                float scale = 1.0f + 0.06f * p;
+                int scaledW = (int) (w * scale);
+                int scaledH = (int) (h * scale);
+                int x = (w - scaledW) / 2;
+                int y = (h - scaledH) / 2;
+
+                int arc = 26;
+
+                // 그림자
+                g2.setColor(new Color(180, 180, 200, 150));
+                g2.fillRoundRect(x, y + 3, scaledW, scaledH, arc + 6, arc + 6);
+
+                // 본체
+                g2.setColor(bgColor);
+                g2.fillRoundRect(x, y, scaledW, scaledH, arc, arc);
+
+                // 테두리
+                g2.setStroke(new BasicStroke(2f));
+                g2.setColor(new Color(190, 195, 220));
+                g2.drawRoundRect(x, y, scaledW, scaledH, arc, arc);
+
+                // 텍스트
+                super.paint(g2, c);
+                g2.dispose();
             }
         });
 
-        return t;
+        // hover 애니메이션
+        final int fps = 60;
+        final int durationMs = 120;
+        final int steps = durationMs * fps / 1000;
+        final Timer timer = new Timer(1000 / fps, null);
+        final float[] target = {0f};
+
+        timer.addActionListener(e -> {
+            float current = (float) btn.getClientProperty("hoverProgress");
+            float step = 1f / steps;
+            if (target[0] > current) {
+                current = Math.min(target[0], current + step);
+            } else if (target[0] < current) {
+                current = Math.max(target[0], current - step);
+            }
+            btn.putClientProperty("hoverProgress", current);
+            btn.repaint();
+            if (current == target[0]) {
+                timer.stop();
+            }
+        });
+
+        btn.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                target[0] = 1f;
+                if (!timer.isRunning()) timer.start();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                target[0] = 0f;
+                if (!timer.isRunning()) timer.start();
+            }
+        });
+
+        return btn;
     }
 
-    /** 현재 필드값으로 라벨/테이블 갱신 */
-    private void refreshUI() {
-        if (accLabel != null) {
-            if (accuracyPct > 0) accLabel.setText(String.format("정확도: %.1f%%", accuracyPct));
-            else accLabel.setText("");
-        }
-        if (model != null) {
-            model.setValueAt(wordScore,     0, 1);
-            model.setValueAt(timeScore,     1, 1);
-            model.setValueAt(accuracyScore, 2, 1);
-            model.setValueAt(itemBonus,     3, 1);
+    // =====================================================
+    //  GamePanel 에서 결과 전달
+    // =====================================================
 
-            int sum = wordScore + timeScore + accuracyScore + itemBonus;
-            if (sum == 0) sum = totalScore; // 총점만 먼저 들어온 경우 보정
-            model.setValueAt(sum, 4, 1);
-            totalScore = sum;
-        }
+    /**
+     * GamePanel에서 직접 전달받는 최종 결과
+     */
+    public void setResult(int totalScore, double accuracyRatio, int timeLeft) {
+        this.totalScore = totalScore;
+        this.accuracyPct = accuracyRatio * 100.0; // 0~1 → %로 변환
+        this.timeLeftSec = Math.max(0, timeLeft);
+
+        // 스테이지에 맞는 배경 다시 선택
+        updateBackgroundByStage();
+
+        refreshUI();
     }
 
     /**
-     * System property에서 값 읽기(없으면 0).
-     * 나중에 GameContext/결과집계 객체로 교체 가능.
+     * 랭킹 저장용 공개 메서드
+     * GamePanel 쪽에서:
+     *
+     *   rs.setResult(...);
+     *   rs.saveRanking(playerName, currentMode);
      */
-    private void readFromContextSafely() {
-        try {
-            wordScore     = safeRead("WORD_SCORE");
-            timeScore     = safeRead("TIME_SCORE");
-            accuracyScore = safeRead("ACCURACY_SCORE");
-            itemBonus     = safeRead("ITEM_BONUS");
-            totalScore    = safeRead("TOTAL_SCORE");
-            accuracyPct   = safeReadDouble("ACCURACY_PCT"); // 이미 %로 들어있으면 그대로
-        } catch (Throwable ignore) {}
+    public void saveRanking(String playerName, GameMode mode) {
+        RankingCsvRepository repo = new RankingCsvRepository();
+        // RankingRecord(String name, int score, double accuracy, int timeLeft, String mode)
+        RankingRecord record = new RankingRecord(
+                playerName,
+                totalScore,
+                accuracyPct,
+                timeLeftSec,
+                mode.name()          // GameMode → 문자열
+        );
+        repo.append(record);
+    }
 
-        if (totalScore == 0) {
-            totalScore = wordScore + timeScore + accuracyScore + itemBonus;
+    // 기존 구조 유지 (사용 안 함)
+    public void setBreakdown(int wordScore, int timeBonus, int accuracyScore, int itemBonus) {
+        // 점수 구성요소를 사용하지 않는 버전이므로 빈 메서드 유지
+    }
+
+    private void refreshUI() {
+        if (accuracyLabel != null) {
+            accuracyLabel.setText(String.format("정확도: %.1f%%", accuracyPct));
+        }
+        if (scoreLabel != null) {
+            scoreLabel.setText("총점: " + totalScore);
+        }
+        if (timeLabel != null) {
+            timeLabel.setText("남은 시간: " + timeLeftSec + "초");
+        }
+        repaint();
+    }
+
+    // =====================================================
+    //  배경 선택 + 풍선 랜덤 배치
+    // =====================================================
+
+    // GamePanel은 같은 패키지(com.balloon.ui.screens)에 있다고 가정.
+    private void updateBackgroundByStage() {
+        int stage = GamePanel.lastCompletedStage;   // GamePanel에 public static int lastCompletedStage; 필요
+
+        String imgName = switch (stage) {
+            case 1 -> "bg_level1.png";
+            case 2 -> "bg_level2.png";
+            case 3 -> "bg_level3.png";
+            default -> "bg_level3.png";
+        };
+
+        bgImage = ImageAssets.load(imgName);
+        balloons.clear();
+    }
+
+    // 풍선 한 개 정보
+    private static class BalloonIcon {
+        BufferedImage img;
+        int x, y, w, h;
+
+        BalloonIcon(BufferedImage img, int x, int y, int w, int h) {
+            this.img = img;
+            this.x = x;
+            this.y = y;
+            this.w = w;
+            this.h = h;
         }
     }
 
-    private int safeRead(String key) {
-        try {
-            String v = System.getProperty(key);
-            if (v == null) return 0;
-            return Integer.parseInt(v.trim());
-        } catch (Throwable ignore) { return 0; }
+    // 현재 패널 크기에 맞춰 풍선들을 랜덤으로 배치 (작고 귀엽게)
+    private void ensureBalloonsLayout(int width, int height) {
+        if (!balloons.isEmpty() || width <= 0 || height <= 0) return;
+
+        BufferedImage[] balloonImgs = new BufferedImage[]{
+                ImageAssets.load("balloon_yellow.png"),
+                ImageAssets.load("balloon_pink.png"),
+                ImageAssets.load("balloon_purple.png"),
+                ImageAssets.load("balloon_green.png"),
+                ImageAssets.load("balloon_orange.png")
+        };
+
+        int count = 8;
+        int minSize = 25;
+        int maxSize = 34;
+
+        for (int i = 0; i < count; i++) {
+            BufferedImage img = balloonImgs[rnd.nextInt(balloonImgs.length)];
+            if (img == null) continue;
+
+            int size = minSize + rnd.nextInt(maxSize - minSize + 1);
+            int x = rnd.nextInt(Math.max(1, width - size - 40)) + 20;
+            int y = rnd.nextInt(Math.max(1, height - size - 220)) + 40;
+
+            balloons.add(new BalloonIcon(img, x, y, size, size));
+        }
     }
 
-    private double safeReadDouble(String key) {
-        try {
-            String v = System.getProperty(key);
-            if (v == null) return 0;
-            return Double.parseDouble(v.trim());
-        } catch (Throwable ignore) { return 0; }
+    @Override
+    protected void paintComponent(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                RenderingHints.VALUE_ANTIALIAS_ON);
+
+        int w = getWidth();
+        int h = getHeight();
+
+        // 배경 이미지
+        if (bgImage != null) {
+            g2.drawImage(bgImage, 0, 0, w, h, this);
+        } else {
+            g2.setColor(new Color(10, 20, 60));
+            g2.fillRect(0, 0, w, h);
+        }
+
+        // 풍선 그리기
+        ensureBalloonsLayout(w, h);
+        for (BalloonIcon b : balloons) {
+            if (b.img != null) {
+                g2.drawImage(b.img, b.x, b.y, b.w, b.h, this);
+            }
+        }
+
+        g2.dispose();
+
+        // 나머지 컴포넌트(라벨/버튼) 그리기
+        super.paintComponent(g);
     }
 }

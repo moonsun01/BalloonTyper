@@ -2,6 +2,7 @@
 package com.balloon.core;
 
 // [L4] 필요한 클래스 임포트: 속성 변경 이벤트를 구독/발행하기 위해 사용
+import com.balloon.game.VersusGameRules;
 import java.beans.PropertyChangeListener;           // [L5] 리스너 인터페이스
 import java.beans.PropertyChangeSupport;            // [L6] 옵저버 패턴 도우미
 
@@ -173,4 +174,88 @@ public final class GameContext {
         SINGLE,
         VERSUS
     }
+
+    public enum VersusWinner {
+        NONE, P1, P2, DRAW
+    }
+
+    public static final class VersusSnapshot {
+        public final int p1Score;
+        public final int p2Score;
+        public final double p1Accuracy;
+        public final double p2Accuracy;
+        public final boolean p1Cleared;
+        public final boolean p2Cleared;
+        public final VersusWinner winner;
+
+        public VersusSnapshot(int p1Score,
+                              int p2Score,
+                              double p1Accuracy,
+                              double p2Accuracy,
+                              boolean p1Cleared,
+                              boolean p2Cleared,
+                              VersusWinner winner) {
+            this.p1Score   = p1Score;
+            this.p2Score   = p2Score;
+            this.p1Accuracy = p1Accuracy;
+            this.p2Accuracy = p2Accuracy;
+            this.p1Cleared  = p1Cleared;
+            this.p2Cleared  = p2Cleared;
+            this.winner     = winner;
+        }
+    }
+
+    private VersusSnapshot versusSnapshot;
+
+    public VersusSnapshot getVersusSnapshot() {
+        return versusSnapshot;
+    }
+
+    public void setVersusSnapshot(VersusSnapshot snapshot) {
+        this.versusSnapshot = snapshot;
+    }
+
+    /**
+     * VersusGameRules(런타임 룰/상태)에서
+     * HUD/결과 화면에서 쓸 요약 스냅샷을 만들어 GameContext에 저장.
+     *
+     * - GamePanel에서 틱마다 호출해도 되고,
+     *   결과 화면 들어가기 전에 한 번만 호출해도 됨.
+     */
+    public void updateVersusSnapshotFromRules(VersusGameRules rules) {
+        if (rules == null) {
+            this.versusSnapshot = null;
+            return;
+        }
+
+        VersusGameRules.PlayerState p1 = rules.getP1();
+        VersusGameRules.PlayerState p2 = rules.getP2();
+
+        // VersusGameRules.Winner -> GameContext.VersusWinner 매핑
+        VersusGameRules.Winner gw = rules.getWinner();
+        VersusWinner vw;
+
+        if (gw == VersusGameRules.Winner.P1) {
+            vw = VersusWinner.P1;
+        } else if (gw == VersusGameRules.Winner.P2) {
+            vw = VersusWinner.P2;
+        } else if (gw == VersusGameRules.Winner.DRAW) {
+            vw = VersusWinner.DRAW;
+        } else {
+            vw = VersusWinner.NONE;
+        }
+
+        this.versusSnapshot = new VersusSnapshot(
+                p1.getScore(),
+                p2.getScore(),
+                p1.getAccuracy(),   // 0.0 ~ 1.0
+                p2.getAccuracy(),
+                p1.isCleared(),
+                p2.isCleared(),
+                vw
+        );
+    }
+
+
+
 }
