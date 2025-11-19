@@ -55,19 +55,17 @@ public class VersusGamePanel extends JPanel implements Showable {
                     HUDRenderer.HUD_FONT.getSize2D() + 12.0f
             );
 
-
-    // [ADD] 듀얼 인트로 단계 관리
+    // 듀얼 인트로 단계
     private enum IntroPhase {
-        NONE,       // 평소 상태 (인트로 없음)
-        MISSION,    // "상대보다 풍선을 먼저 터뜨리세요!"
-        START       // "START!"
+        NONE,
+        MISSION,
+        START
     }
-
     private IntroPhase introPhase = IntroPhase.NONE;
 
-    // 듀얼 룰(점수/정확도/올클리어/승패)
+    // 듀얼 룰(정확도/올클리어/승패용 – 시간은 사실상 미사용)
     private VersusGameRules rules;
-    private static final int INITIAL_TIME_SECONDS = 60;   // 듀얼 기본 시간(지금은 사실상 미사용)
+    private static final int INITIAL_TIME_SECONDS = 60;
 
     // 네트워크
     private VersusClient netClient;
@@ -82,13 +80,12 @@ public class VersusGamePanel extends JPanel implements Showable {
     private int p1Remaining = TOTAL_BALLOONS_PER_PLAYER;
     private int p2Remaining = TOTAL_BALLOONS_PER_PLAYER;
 
-    // 랜덤 (아이템, 추가 풍선 등)
-    private final Random rnd = new Random(20241118L);
+    // 랜덤 (풍선 색, 아이템)
+    private final Random rnd = new Random();
 
-    // 아이템 적용기
+    // 아이템 적용기(지금은 null → 실제 필드 변경 안 함)
     private ItemEffectApplier itemApplier;
-    // 풍선에 붙은 아이템
-    private final Map<Balloon, Item> itemBalloons = new HashMap<>();
+
 
     // 단어 공급기
     private WordProvider p1Words;
@@ -102,75 +99,14 @@ public class VersusGamePanel extends JPanel implements Showable {
     private enum ResultState {
         NONE, P1_WIN, P2_WIN, DRAW
     }
-
     private ResultState resultState = ResultState.NONE;
 
-    // === 아이템 토스트(싱글 모드랑 같은 박스 디자인) ===
-    private String itemToastText = null;   // 표시할 문구
-    private long   itemToastExpireAt = 0L; // 끝나는 시간(ms)
-    private boolean itemToastPositive = true; // 좋은 효과인지(색 구분용)
+    // 아이템 토스트
+    private String itemToastText = null;
+    private long   itemToastExpireAt = 0L;
+    private boolean itemToastPositive = true;
 
-    // 싱글 모드처럼 중앙에 토스트 띄우기
-    private void showItemToast(String msg, boolean positive) {
-        itemToastText = msg;
-        itemToastPositive = positive;
-        itemToastExpireAt = System.currentTimeMillis() + 800; // 0.8초 정도 유지
-        repaint();
-    }
-
-    // 싱글 모드 itemToastLabel 디자인을 그대로 흉내 내서 그림
-    private void drawItemToast(Graphics2D g2, int w, int h) {
-        if (itemToastText == null) return;
-
-        long now = System.currentTimeMillis();
-        if (now > itemToastExpireAt) {
-            itemToastText = null;
-            return;
-        }
-
-        Font oldFont = g2.getFont();
-        Font toastFont = HUDRenderer.HUD_FONT.deriveFont(32f); // GamePanel이 32 정도 사용
-        g2.setFont(toastFont);
-        FontMetrics fm = g2.getFontMetrics();
-
-        int textW = fm.stringWidth(itemToastText);
-        int textH = fm.getAscent();
-
-        int boxW = 420;  // 싱글 모드 itemToastLabel과 비슷한 크기
-        int boxH = 70;
-        int centerX = w / 2;
-        int centerY = 260; // GamePanel에서 쓰던 위치랑 비슷하게
-
-        int x = centerX - boxW / 2;
-        int y = centerY - boxH / 2;
-
-        // 배경: 검은 반투명 + 흰 테두리 (싱글 모드랑 동일)
-        Composite oldComp = g2.getComposite();
-        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.7f));
-        g2.setColor(new Color(0, 0, 0, 180));
-        g2.fillRoundRect(x, y, boxW, boxH, 20, 20);
-        g2.setComposite(oldComp);
-
-        g2.setColor(new Color(255, 255, 255, 200));
-        g2.setStroke(new BasicStroke(2f));
-        g2.drawRoundRect(x, y, boxW, boxH, 20, 20);
-
-        // 글자 색: 싱글 모드 itemToastLabel처럼 노란 느낌
-        if (itemToastPositive) {
-            g2.setColor(new Color(255, 240, 180));
-        } else {
-            g2.setColor(new Color(255, 150, 150));
-        }
-
-        int tx = centerX - textW / 2;
-        int ty = centerY + textH / 2 - 4;
-        g2.drawString(itemToastText, tx, ty);
-
-        g2.setFont(oldFont);
-    }
-
-
-    // 결과 후 Retry/Home 오버레이 표시 여부
+    // 결과 후 Retry/Home 오버레이
     private boolean showRetryOverlay = false;
     private Rectangle retryRect = null;
     private Rectangle homeRect  = null;
@@ -223,32 +159,6 @@ public class VersusGamePanel extends JPanel implements Showable {
             inputField.setText("");
         });
 
-        // 디버그용 키 (1,2,3,R,H)
-        inputField.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                int code = e.getKeyCode();
-
-                if (code == KeyEvent.VK_1) {
-                    startResultSequence(ResultState.P1_WIN);
-                } else if (code == KeyEvent.VK_2) {
-                    startResultSequence(ResultState.P2_WIN);
-                } else if (code == KeyEvent.VK_3) {
-                    startResultSequence(ResultState.DRAW);
-                } else if (code == KeyEvent.VK_R) {
-                    resultState = ResultState.NONE;
-                    showRetryOverlay = false;
-                    finished = false;
-                    repaint();
-                } else if (code == KeyEvent.VK_H) {
-                    resultState = ResultState.NONE;
-                    showRetryOverlay = false;
-                    finished = true;
-                    router.show(ScreenId.START);
-                }
-            }
-        });
-
         // 결과 화면 클릭 처리 (RETRY / HOME)
         addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
@@ -266,7 +176,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         });
     }
 
-    // 플레이어 이름 표시 (myRole에 따라 레이블만 바뀜, 보드는 항상 P1=왼쪽/P2=오른쪽)
+    // 플레이어 이름 표시 (myRole에 따라 레이블만 바뀜, 보드는 P1=왼쪽/P2=오른쪽 고정)
     private void drawPlayerNames(Graphics2D g2, int w, int h) {
         g2.setColor(Color.BLACK);
         g2.setFont(NAME_FONT);
@@ -287,10 +197,8 @@ public class VersusGamePanel extends JPanel implements Showable {
             rightLabel = "opponent";
         }
 
-        // 왼쪽 이름
         g2.drawString(leftLabel, 20, nameY);
 
-        // 오른쪽 이름
         FontMetrics fm = g2.getFontMetrics();
         int textWidth = fm.stringWidth(rightLabel);
         int rightMargin = 20;
@@ -303,7 +211,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         int groundMargin = 60;
         int baseY = panelHeight - groundMargin;
 
-        double houseScale = 0.3; // 집 크기 비율
+        double houseScale = 0.3;
 
         int origW = houseImg.getWidth(this);
         int origH = houseImg.getHeight(this);
@@ -323,20 +231,15 @@ public class VersusGamePanel extends JPanel implements Showable {
             return balloonGreen;
         }
         switch (kind) {
-            case RED:
-                return balloonPink;
-            case GREEN:
-                return balloonGreen;
-            case BLUE:
-                return balloonPurple;
-            default:
-                return balloonGreen;
+            case RED:   return balloonPink;
+            case GREEN: return balloonGreen;
+            case BLUE:  return balloonPurple;
+            default:    return balloonGreen;
         }
     }
 
-    // 풍선 색상을 랜덤으로 선택 (RED / GREEN / BLUE)
+    // 풍선 색상 랜덤 (RED / GREEN / BLUE)
     private Balloon.Kind randomKind() {
-        // GamePanel의 toKind()를 보면 Kind가 RED / GREEN / BLUE 3개만 쓰이니까
         Balloon.Kind[] kinds = {
                 Balloon.Kind.RED,
                 Balloon.Kind.GREEN,
@@ -344,7 +247,6 @@ public class VersusGamePanel extends JPanel implements Showable {
         };
         return kinds[rnd.nextInt(kinds.length)];
     }
-
 
     // 풍선 좌표 계산 (7줄 3·4·5·6·5·4·3)
     private java.util.List<Point> buildBalloonPositions(double anchorX, double anchorY) {
@@ -387,7 +289,7 @@ public class VersusGamePanel extends JPanel implements Showable {
 
         int balloonSize = 65;
 
-        // 줄 먼저
+        // 줄
         g2.setStroke(new BasicStroke(1.5f));
         g2.setColor(new Color(235, 235, 235));
 
@@ -402,7 +304,6 @@ public class VersusGamePanel extends JPanel implements Showable {
                     by + balloonSize);
         }
 
-        // 풍선 + 텍스트
         // 풍선 + 텍스트
         for (Balloon b : balloons) {
             if (b == null || !b.isActive()) continue;
@@ -422,73 +323,46 @@ public class VersusGamePanel extends JPanel implements Showable {
                 int tx = bx + (balloonSize - tw) / 2;
                 int ty = by + (balloonSize / 2) + fm.getAscent() / 2 - 4;
 
-                // ★ 아이템에 따라 텍스트 색 결정
                 Color textColor = Color.BLACK;
-                Item item = itemBalloons.get(b);
-                if (item != null) {
-                    switch (item.getKind()) {
-                        case BALLOON_PLUS_2 -> textColor = new Color(120, 160, 255);   // +2: 파란 느낌
-                        case BALLOON_MINUS_2 -> textColor = new Color(255, 110, 110);  // -2: 빨간 느낌
-                        default -> textColor = Color.BLACK;
-                    }
+
+                // 🔹 풍선 안에 아이템이 있으면 파란색
+                if (b.getAttachedItem() != null) {
+                    textColor = new Color(120, 160, 255);
                 }
+
                 g2.setColor(textColor);
                 g2.drawString(text, tx, ty);
-
             }
-        }
 
+        }
     }
 
     // 화면에 들어올 때
     @Override
     public void onShown() {
+        System.out.println("[VERSUS] onShown() 호출 - 새로운 게임 진입");
         inputField.setEnabled(true);
         inputField.setVisible(true);
+
+        started = false;
+        finished = false;
+        resultState = ResultState.NONE;
+        showRetryOverlay = false;
 
         p1Remaining = TOTAL_BALLOONS_PER_PLAYER;
         p2Remaining = TOTAL_BALLOONS_PER_PLAYER;
 
-        // 공통 words 리스트 한 번 로드
-        java.util.List<String> allWords = loadWordsFromResource("/data/words.csv");
+        // 단어 공급기 초기화 (P1/P2 모두 동일 순서로 시작)
+        resetWordProviders();
 
-        // P1 / P2 단어 공급기 (한 번만 생성, 이후 RETRY에서도 재사용)
-        if (p1Words == null) {
-            p1Words = new StaticWordProvider(allWords, StaticWordProvider.Role.P1);
-        }
-        if (p2Words == null) {
-            p2Words = new StaticWordProvider(allWords, StaticWordProvider.Role.P2);
-        }
-
-        // 듀얼 룰 초기화
+        // 룰 초기화
         rules = new VersusGameRules(INITIAL_TIME_SECONDS);
 
         // 풍선 스폰
         spawnInitialBalloons();
 
-        // 아이템 적용기
-        itemApplier = new ItemEffectApplier(
-                // 듀얼 모드는 시간 조작 안 씀
-                new ItemEffectApplier.TimeApi() {
-                    @Override
-                    public void addSeconds(int delta) { }
-                    @Override
-                    public int getTimeLeft() { return 0; }
-                },
-                // UI 효과: 일단 콘솔만
-                new ItemEffectApplier.UiApi() {
-                    @Override
-                    public void showToast(String message) {
-                        System.out.println("[ITEM] " + message);
-                    }
-                    @Override
-                    public void flashEffect(boolean positive) {
-                        System.out.println(positive ? "[ITEM] GOOD" : "[ITEM] BAD");
-                    }
-                },
-                // 필드 조작: 상대 풍선 추가/내 풍선 제거
-                new VersusFieldApi()
-        );
+        // 아이템 적용기는 듀얼에서는 실제로 사용하지 않음 (필드 변화 X)
+        itemApplier = null;
 
         SwingUtilities.invokeLater(() -> inputField.requestFocusInWindow());
 
@@ -531,7 +405,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     myRole = role;
                 }
                 else if (msg.equals("START")) {
-                    SwingUtilities.invokeLater(() -> startIntroSequence());
+                    SwingUtilities.invokeLater(this::startIntroSequence);
                 }
                 else if (msg.startsWith("POP ")) {
                     String[] parts = msg.split(" ", 3);
@@ -540,7 +414,8 @@ public class VersusGamePanel extends JPanel implements Showable {
                         String word = parts[2];
                         SwingUtilities.invokeLater(() -> onRemotePop(who, word));
                     }
-                } else if (msg.startsWith("RESULT")) {
+                }
+                else if (msg.startsWith("RESULT")) {
                     String[] parts = msg.split(" ");
                     String keyword = (parts.length >= 2) ? parts[1].trim() : "";
 
@@ -557,11 +432,8 @@ public class VersusGamePanel extends JPanel implements Showable {
                     }
                     final ResultState finalState = state;
                     SwingUtilities.invokeLater(() -> startResultSequence(finalState));
-
-                    // ★ 여기서 break 하지 않는다!
-                    // 서버가 다음 라운드 START를 다시 보내면, 위의 START 분기에서 또 처리하게 두기
+                    // ★ break 안 함 → 같은 소켓으로 다음 라운드 계속
                 }
-
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -573,7 +445,6 @@ public class VersusGamePanel extends JPanel implements Showable {
         started = true;
         finished = false;
 
-        // 1단계: 미션 안내
         introPhase = IntroPhase.MISSION;
         inputField.setEnabled(false);
         repaint();
@@ -584,7 +455,7 @@ public class VersusGamePanel extends JPanel implements Showable {
             repaint();
             ((javax.swing.Timer) e.getSource()).stop();
 
-            // START! 1초 후 입력 가능
+            // 1초 후 입력 가능
             javax.swing.Timer startTimer = new javax.swing.Timer(1000, e2 -> {
                 introPhase = IntroPhase.NONE;
                 inputField.setEnabled(true);
@@ -595,15 +466,12 @@ public class VersusGamePanel extends JPanel implements Showable {
             startTimer.setRepeats(false);
             startTimer.start();
         });
-
         missionTimer.setRepeats(false);
         missionTimer.start();
     }
 
-
     // 서버에서 POP 수신
     private void onRemotePop(String who, String word) {
-
         boolean popped = tryPopBalloonFor(who, word);
         if (!popped) {
             return;
@@ -618,23 +486,18 @@ public class VersusGamePanel extends JPanel implements Showable {
         if (rules != null) {
             int playerIndex = "P1".equals(who) ? 1 : 2;
             boolean allCleared = (playerIndex == 1) ? (p1Remaining <= 0) : (p2Remaining <= 0);
-            rules.onPop(playerIndex, 0, allCleared);
+            rules.onPop(playerIndex, 0, allCleared); // 점수는 0으로
         }
 
         repaint();
     }
 
-    // 내 필드에서 풍선 하나 터뜨렸을 때(점수, 룰 반영)
+    // 내 필드에서 풍선 하나 터뜨렸을 때(룰 반영)
     private void removeMyBalloon(String typedWord) {
-
         if ("P1".equals(myRole)) {
-            if (p1Remaining > 0) {
-                p1Remaining--;
-            }
+            if (p1Remaining > 0) p1Remaining--;
         } else if ("P2".equals(myRole)) {
-            if (p2Remaining > 0) {
-                p2Remaining--;
-            }
+            if (p2Remaining > 0) p2Remaining--;
         }
 
         if (rules != null) {
@@ -676,22 +539,73 @@ public class VersusGamePanel extends JPanel implements Showable {
             if (!b.isActive()) continue;
             if (trimmed.equals(b.getWord())) {
                 b.pop();
-                applyItemIfExists(b);
+                applyItemIfExists(b);  // ★ 여기서 아이템 실행!
                 return true;
             }
         }
         return false;
     }
 
-    // POP된 풍선에 아이템 붙어있으면 터뜨리기
+    // POP된 풍선에 아이템 붙어있으면 효과 적용
     private void applyItemIfExists(Balloon b) {
-        if (b == null || itemApplier == null) return;
+        if (b == null) return;
 
-        Item item = itemBalloons.remove(b);
-        if (item != null) {
-            itemApplier.apply(item);
+        // 🔹 풍선이 들고 있는 아이템 떼어오기 (한 번만 사용)
+        Item item = b.detachAttachedItem();
+        if (item == null) {
+            System.out.println("[ITEM] no item on balloon word=" + b.getWord());
+            return;
+        }
+
+        ItemKind kind = item.getKind();
+
+        // 이 풍선이 어느 쪽 필드인지 판정
+        String owner;
+        if (p1Balloons.contains(b)) {
+            owner = "P1";
+        } else if (p2Balloons.contains(b)) {
+            owner = "P2";
+        } else {
+            owner = myRole;
+        }
+        String opponent = "P1".equals(owner) ? "P2" : "P1";
+
+        System.out.println("[ITEM] apply kind=" + kind +
+                ", owner=" + owner + ", opponent=" + opponent +
+                ", word=" + b.getWord());
+
+        switch (kind) {
+            // === 상대 필드에 작용하는 아이템 ===
+            case BALLOON_PLUS_2 -> {
+                addRandomBalloonsTo(opponent, 2);
+                showItemToast("상대 풍선 +2!", true);
+            }
+            case BALLOON_MINUS_2 -> {
+                removeRandomBalloonFrom(opponent);
+                removeRandomBalloonFrom(opponent);
+                showItemToast("상대 풍선 -2!", true);
+            }
+
+            // === 내 필드에 작용하는 아이템 ===
+            case SELF_BALLOON_PLUS_2 -> {
+                addRandomBalloonsTo(owner, 2);
+                showItemToast("내 풍선 +2!", true);
+            }
+            case SELF_BALLOON_MINUS_2 -> {
+                removeRandomBalloonFrom(owner);
+                removeRandomBalloonFrom(owner);
+                showItemToast("내 풍선 -2!", false);
+            }
+
+            default -> {
+                // 듀얼에서는 시간 아이템 안 씀
+            }
         }
     }
+
+
+
+
 
     // who("P1"/"P2") 쪽에서 단어 매칭 풍선 POP
     private boolean tryPopBalloonFor(String who, String word) {
@@ -714,6 +628,7 @@ public class VersusGamePanel extends JPanel implements Showable {
             if (!b.isActive()) continue;
             if (trimmed.equals(b.getWord())) {
                 b.pop();
+                applyItemIfExists(b);  // ★ 여기서도 아이템 실행!
                 return true;
             }
         }
@@ -734,7 +649,6 @@ public class VersusGamePanel extends JPanel implements Showable {
     private void spawnInitialBalloons() {
         p1Balloons.clear();
         p2Balloons.clear();
-        itemBalloons.clear();
 
         int w = getWidth();
         int h = getHeight();
@@ -767,8 +681,11 @@ public class VersusGamePanel extends JPanel implements Showable {
                     p.y,
                     randomKind()
             );
-            p1Balloons.add(b);
+
+            // ★ 여기서 아이템 붙임
             attachRandomItemToBalloon("P1", b);
+
+            p1Balloons.add(b);
         }
 
         // P2 풍선
@@ -787,43 +704,59 @@ public class VersusGamePanel extends JPanel implements Showable {
                     p.y,
                     randomKind()
             );
-            p2Balloons.add(b);
+
+            // ★ 여기서 아이템 붙임
             attachRandomItemToBalloon("P2", b);
+
+            p2Balloons.add(b);
         }
 
         p1Remaining = p1Balloons.size();
         p2Remaining = p2Balloons.size();
     }
 
+
+    // 풍선에 랜덤 아이템 붙이기 (20% 확률)
+// - BALLOON_PLUS_2        : 상대 풍선 +2
+// - BALLOON_MINUS_2       : 상대 풍선 -2
+// - SELF_BALLOON_PLUS_2   : 내   풍선 +2
+// - SELF_BALLOON_MINUS_2  : 내   풍선 -2
     // 풍선에 랜덤 아이템 붙이기
     private void attachRandomItemToBalloon(String owner, Balloon b) {
         if (b == null) return;
 
-        double chance = 0.2; // 20% 확률로만 아이템 풍선
+        double chance = 0.2; // 20% 확률로 아이템 풍선
         if (rnd.nextDouble() > chance) {
             b.setCategory(ItemCategory.NONE);
+            b.setAttachedItem(null);  // 혹시 남아있던 거 초기화
             return;
         }
 
-        // ★ 듀얼 모드는 풍선 수 아이템만 사용
+        // 0~3 사이에서 골라서 4종류 아이템
+        int r = rnd.nextInt(4);
         ItemKind kind;
-        int r = rnd.nextInt(2); // 0 또는 1만
-
-        if (r == 0) {
-            kind = ItemKind.BALLOON_PLUS_2;
-        } else {
-            kind = ItemKind.BALLOON_MINUS_2;
+        switch (r) {
+            case 0 -> kind = ItemKind.BALLOON_PLUS_2;       // 상대 풍선 +2
+            case 1 -> kind = ItemKind.BALLOON_MINUS_2;      // 상대 풍선 -2
+            case 2 -> kind = ItemKind.SELF_BALLOON_PLUS_2;  // 내 풍선 +2
+            case 3 -> kind = ItemKind.SELF_BALLOON_MINUS_2; // 내 풍선 -2
+            default -> kind = ItemKind.BALLOON_PLUS_2;
         }
 
         Item item = new Item(kind, 0, 0);
 
-        // 전부 BALLOON 카테고리
+        // 듀얼 아이템은 BALLOON 카테고리로 고정 (글씨 파란색 처리용)
         b.setCategory(ItemCategory.BALLOON);
-        itemBalloons.put(b, item);
+
+        // 🔹 풍선 객체 안에 직접 붙이기
+        b.setAttachedItem(item);
+
+        System.out.println("[ITEM] attach " + kind + " to " + owner + " word=" + b.getWord());
     }
 
 
-    // who 쪽에 풍선 n개 랜덤 추가
+
+    // who("P1"/"P2") 쪽에 풍선 n개 랜덤 추가
     private void addRandomBalloonsTo(String who, int count) {
         if (count <= 0) return;
 
@@ -845,26 +778,21 @@ public class VersusGamePanel extends JPanel implements Showable {
 
             String word;
             if ("P1".equals(who)) {
-                if (p1Words != null) {
-                    word = p1Words.nextWord();
-                } else {
-                    word = "P1-extra-" + (list.size() + 1);
-                }
+                word = (p1Words != null) ? p1Words.nextWord() : "P1-extra-" + (list.size() + 1);
             } else {
-                if (p2Words != null) {
-                    word = p2Words.nextWord();
-                } else {
-                    word = "P2-extra-" + (list.size() + 1);
-                }
+                word = (p2Words != null) ? p2Words.nextWord() : "P2-extra-" + (list.size() + 1);
             }
 
-            Balloon b = new Balloon(
+            Balloon nb = new Balloon(
                     word,
                     p.x,
                     p.y,
                     randomKind()
             );
-            list.add(b);
+
+            // 추가로 생긴 풍선에는 기본적으로 아이템 없음
+            nb.setCategory(ItemCategory.NONE);
+            list.add(nb);
 
             if ("P1".equals(who)) {
                 p1Remaining++;
@@ -876,7 +804,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         repaint();
     }
 
-    // who 쪽에서 살아있는 풍선 하나 랜덤 제거
+    // who("P1"/"P2") 쪽에서 살아있는 풍선 하나 랜덤 제거
     private boolean removeRandomBalloonFrom(String who) {
         java.util.List<Balloon> list = getBalloonListFor(who);
         if (list.isEmpty()) return false;
@@ -902,26 +830,11 @@ public class VersusGamePanel extends JPanel implements Showable {
         return true;
     }
 
-    // 아이템에서 쓸 필드 API
-    private class VersusFieldApi implements ItemEffectApplier.FieldApi {
-        @Override
-        public void addBalloons(int n) {
-            String opponent = getOpponentRole();
-            addRandomBalloonsTo(opponent, n); //상대 풍선 +n
-        }
 
-        @Override
-        public void removeBalloons(int n) {
-            for (int i = 0; i < n; i++) {
-                removeRandomBalloonFrom(myRole); //내 풍선 -n
-            }
-        }
-    }
+
 
     /**
      * 리소스(예: /data/words.csv)에서 단어를 읽는다.
-     * primaryPath가 없으면 fallbackPath 시도.
-     * 둘 다 실패하면 defaultPrefix-번호 형식으로 더미 단어 만든다.
      */
     private java.util.List<String> loadWordsFromResource(
             String primaryPath,
@@ -971,10 +884,16 @@ public class VersusGamePanel extends JPanel implements Showable {
         return loadWordsFromResource(path, null, "WORD");
     }
 
+    // 단어 공급기 리셋 (양쪽 클라가 동일한 CSV 순서로 시작하도록)
+    private void resetWordProviders() {
+        java.util.List<String> allWords = loadWordsFromResource("/data/words.csv");
+        p1Words = new StaticWordProvider(allWords, StaticWordProvider.Role.P1);
+        p2Words = new StaticWordProvider(allWords, StaticWordProvider.Role.P2);
+    }
 
-    // HUD (Score만)
+    // HUD (듀얼에서는 점수/타이머 사용 안 함)
     private void drawHud(Graphics2D g2, int w, int h) {
-
+        // 듀얼 모드는 점수/타이머 없음 → 비움
     }
 
     // 내가 엔터 쳤을 때
@@ -1009,27 +928,25 @@ public class VersusGamePanel extends JPanel implements Showable {
         }
     }
 
-    // [ADD] 듀얼 인트로(미션 안내 + START!) 표시
+    // 듀얼 인트로(미션 안내 + START!) 표시
     private void drawStartMessage(Graphics2D g2, int w, int h) {
         if (introPhase == IntroPhase.NONE) return;
 
-        // 반투명 어두운 배경
         Composite oldComp = g2.getComposite();
         g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.6f));
         g2.setColor(Color.DARK_GRAY);
         g2.fillRect(0, 0, w, h);
         g2.setComposite(oldComp);
 
-        // 텍스트 설정
         String text;
         if (introPhase == IntroPhase.MISSION) {
             text = "상대보다 풍선을 먼저 터뜨리세요!";
-        } else { // IntroPhase.START
+        } else {
             text = "START!";
         }
 
         Font oldFont = g2.getFont();
-        Font msgFont = NAME_FONT.deriveFont(NAME_FONT.getSize2D() + 8.0f); // 좀 크게
+        Font msgFont = NAME_FONT.deriveFont(NAME_FONT.getSize2D() + 8.0f);
         g2.setFont(msgFont);
         FontMetrics fm = g2.getFontMetrics();
 
@@ -1048,6 +965,61 @@ public class VersusGamePanel extends JPanel implements Showable {
         g2.setFont(oldFont);
     }
 
+    // 아이템 토스트 표시
+    private void showItemToast(String msg, boolean positive) {
+        itemToastText = msg;
+        itemToastPositive = positive;
+        itemToastExpireAt = System.currentTimeMillis() + 800;
+        repaint();
+    }
+
+    private void drawItemToast(Graphics2D g2, int w, int h) {
+        if (itemToastText == null) return;
+
+        long now = System.currentTimeMillis();
+        if (now > itemToastExpireAt) {
+            itemToastText = null;
+            return;
+        }
+
+        Font oldFont = g2.getFont();
+        Font toastFont = HUDRenderer.HUD_FONT.deriveFont(32f);
+        g2.setFont(toastFont);
+        FontMetrics fm = g2.getFontMetrics();
+
+        int textW = fm.stringWidth(itemToastText);
+        int textH = fm.getAscent();
+
+        int boxW = 420;
+        int boxH = 70;
+        int centerX = w / 2;
+        int centerY = 260;
+
+        int x = centerX - boxW / 2;
+        int y = centerY - boxH / 2;
+
+        Composite oldComp = g2.getComposite();
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.7f));
+        g2.setColor(new Color(0, 0, 0, 180));
+        g2.fillRoundRect(x, y, boxW, boxH, 20, 20);
+        g2.setComposite(oldComp);
+
+        g2.setColor(new Color(255, 255, 255, 200));
+        g2.setStroke(new BasicStroke(2f));
+        g2.drawRoundRect(x, y, boxW, boxH, 20, 20);
+
+        if (itemToastPositive) {
+            g2.setColor(new Color(255, 240, 180));
+        } else {
+            g2.setColor(new Color(255, 150, 150));
+        }
+
+        int tx = centerX - textW / 2;
+        int ty = centerY + textH / 2 - 4;
+        g2.drawString(itemToastText, tx, ty);
+
+        g2.setFont(oldFont);
+    }
 
     // 결과 오버레이
     private void drawResultOverlay(Graphics2D g2, int w, int h) {
@@ -1170,7 +1142,7 @@ public class VersusGamePanel extends JPanel implements Showable {
 
     @Override
     public void onHidden() {
-        // 아직 특별한 건 없음
+        // 필요하면 여기서 netClient.close() 처리도 가능 (지금은 HOME에서만 닫음)
     }
 
     @Override
@@ -1192,14 +1164,14 @@ public class VersusGamePanel extends JPanel implements Showable {
         drawHouseArea(g2, centerLeft, h);
         drawHouseArea(g2, centerRight, h);
 
-        // 항상 P1 = 왼쪽, P2 = 오른쪽
+        // P1 = 왼쪽, P2 = 오른쪽
         drawBalloonCluster(g2, p1Balloons, centerLeft, h);
         drawBalloonCluster(g2, p2Balloons, centerRight, h);
 
-        // [ADD] 듀얼 시작 안내 문구
+        // 듀얼 시작 안내
         drawStartMessage(g2, w, h);
 
-        // 싱글 모드처럼 중앙 토스트 박스
+        // 중앙 토스트 박스
         drawItemToast(g2, w, h);
 
         drawResultOverlay(g2, w, h);
@@ -1257,19 +1229,16 @@ public class VersusGamePanel extends JPanel implements Showable {
 
         ctx.setVersusSnapshot(snapshot);
 
+        // 결과 상태 적용
+        resultState = state;
         finished = true;
         showRetryOverlay = false;
-
 
         inputField.setText("");
         inputField.setEnabled(false);
 
-        // 네트워크 연결 정리(선택)
-        if (netClient != null) {
-            try {
-                netClient.close();
-            } catch (Exception ignore) {}
-        }
+        // 소켓은 닫지 않는다 → RETRY 후 같은 연결로 계속 진행
+        repaint();
 
         javax.swing.Timer t = new javax.swing.Timer(2000, e -> {
             showRetryOverlay = true;
@@ -1297,6 +1266,7 @@ public class VersusGamePanel extends JPanel implements Showable {
 
     // RETRY 클릭
     private void handleRetryClicked() {
+        System.out.println("[VERSUS] RETRY 클릭 - 재시작");
         finished = false;
         resultState = ResultState.NONE;
         showRetryOverlay = false;
@@ -1304,16 +1274,18 @@ public class VersusGamePanel extends JPanel implements Showable {
         p1Remaining = TOTAL_BALLOONS_PER_PLAYER;
         p2Remaining = TOTAL_BALLOONS_PER_PLAYER;
 
-        // 풍선 새로 스폰
+        // 단어 공급기 리셋 (양쪽 클라가 같은 CSV 순서에서 다시 시작)
+        resetWordProviders();
+
+        // 풍선 새로 스폰 (여기서 아이템까지 다시 붙음)
         spawnInitialBalloons();
 
         // 룰 초기화
         rules = new VersusGameRules(INITIAL_TIME_SECONDS);
 
-        // 🔽 입력창 다시 활성화 + 포커스 주기
         inputField.setText("");
         inputField.setEnabled(true);
-        inputField.setVisible(true); // 혹시 모르니 true 한 번 명시
+        inputField.setVisible(true);
         SwingUtilities.invokeLater(() -> inputField.requestFocusInWindow());
 
         repaint();
