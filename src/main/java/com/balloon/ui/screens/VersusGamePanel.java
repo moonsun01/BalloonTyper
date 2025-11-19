@@ -108,6 +108,70 @@ public class VersusGamePanel extends JPanel implements Showable {
 
     private ResultState resultState = ResultState.NONE;
 
+    // === 아이템 토스트(싱글 모드랑 같은 박스 디자인) ===
+    private String itemToastText = null;   // 표시할 문구
+    private long   itemToastExpireAt = 0L; // 끝나는 시간(ms)
+    private boolean itemToastPositive = true; // 좋은 효과인지(색 구분용)
+
+    // 싱글 모드처럼 중앙에 토스트 띄우기
+    private void showItemToast(String msg, boolean positive) {
+        itemToastText = msg;
+        itemToastPositive = positive;
+        itemToastExpireAt = System.currentTimeMillis() + 800; // 0.8초 정도 유지
+        repaint();
+    }
+
+    // 싱글 모드 itemToastLabel 디자인을 그대로 흉내 내서 그림
+    private void drawItemToast(Graphics2D g2, int w, int h) {
+        if (itemToastText == null) return;
+
+        long now = System.currentTimeMillis();
+        if (now > itemToastExpireAt) {
+            itemToastText = null;
+            return;
+        }
+
+        Font oldFont = g2.getFont();
+        Font toastFont = HUDRenderer.HUD_FONT.deriveFont(32f); // GamePanel이 32 정도 사용
+        g2.setFont(toastFont);
+        FontMetrics fm = g2.getFontMetrics();
+
+        int textW = fm.stringWidth(itemToastText);
+        int textH = fm.getAscent();
+
+        int boxW = 420;  // 싱글 모드 itemToastLabel과 비슷한 크기
+        int boxH = 70;
+        int centerX = w / 2;
+        int centerY = 260; // GamePanel에서 쓰던 위치랑 비슷하게
+
+        int x = centerX - boxW / 2;
+        int y = centerY - boxH / 2;
+
+        // 배경: 검은 반투명 + 흰 테두리 (싱글 모드랑 동일)
+        Composite oldComp = g2.getComposite();
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.7f));
+        g2.setColor(new Color(0, 0, 0, 180));
+        g2.fillRoundRect(x, y, boxW, boxH, 20, 20);
+        g2.setComposite(oldComp);
+
+        g2.setColor(new Color(255, 255, 255, 200));
+        g2.setStroke(new BasicStroke(2f));
+        g2.drawRoundRect(x, y, boxW, boxH, 20, 20);
+
+        // 글자 색: 싱글 모드 itemToastLabel처럼 노란 느낌
+        if (itemToastPositive) {
+            g2.setColor(new Color(255, 240, 180));
+        } else {
+            g2.setColor(new Color(255, 150, 150));
+        }
+
+        int tx = centerX - textW / 2;
+        int ty = centerY + textH / 2 - 4;
+        g2.drawString(itemToastText, tx, ty);
+
+        g2.setFont(oldFont);
+    }
+
 
     // 결과 후 Retry/Home 오버레이 표시 여부
     private boolean showRetryOverlay = false;
@@ -849,13 +913,13 @@ public class VersusGamePanel extends JPanel implements Showable {
         @Override
         public void addBalloons(int n) {
             String opponent = getOpponentRole();
-            addRandomBalloonsTo(opponent, n);
+            addRandomBalloonsTo(opponent, n); //상대 풍선 +n
         }
 
         @Override
         public void removeBalloons(int n) {
             for (int i = 0; i < n; i++) {
-                removeRandomBalloonFrom(myRole);
+                removeRandomBalloonFrom(myRole); //내 풍선 -n
             }
         }
     }
@@ -1153,6 +1217,9 @@ public class VersusGamePanel extends JPanel implements Showable {
 
         // [ADD] 듀얼 시작 안내 문구
         drawStartMessage(g2, w, h);
+
+        // 싱글 모드처럼 중앙 토스트 박스
+        drawItemToast(g2, w, h);
 
         drawResultOverlay(g2, w, h);
     }

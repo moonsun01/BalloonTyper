@@ -1,4 +1,4 @@
-package com.balloon.game.items;
+package com.balloon.items;
 
 import java.util.concurrent.ThreadLocalRandom;
 
