@@ -108,6 +108,8 @@ public class VersusServer {
                             finished = true;
                             winnerRole = null;
                             break;
+                        } else if (line.startsWith("TOAST")) {
+                            broadcast(p1, p2, line);
                         }
                     }
 
@@ -144,6 +146,8 @@ public class VersusServer {
                             finished = true;
                             winnerRole = null;
                             break;
+                        } else if (line.startsWith("TOAST")) {
+                            broadcast(p1, p2, line);
                         }
                     }
 
