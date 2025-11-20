@@ -65,9 +65,4 @@ public class VersusClient {
         out.println("REVERSE " + targetRole + " " + durationMillis);
     }
 
-    // VersusClient.java 안에 추가
-    public void sendReverse(String targetRole, long durationMillis) {
-        out.println("REVERSE " + targetRole + " " + durationMillis);
-    }
-
 }

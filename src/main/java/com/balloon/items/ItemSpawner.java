@@ -3,9 +3,12 @@ package com.balloon.items;
 import com.balloon.game.model.Balloon;
 import com.balloon.ui.skin.SecretItemSkin;
 
-
 import java.util.Optional;
 import java.util.Random;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
+
 
 /** 풍선 '터짐' 이벤트에서 아이템 드랍 여부/종류를 즉석 결정 */
 public class ItemSpawner {
@@ -94,4 +97,52 @@ public class ItemSpawner {
         // 남은 케이스
         return ItemKind.BALLOON_MINUS_2;
     }
+
+    // =====================[ 듀얼 모드 전용 카테고리 배치 ]=====================
+
+    /**
+     * 듀얼 모드에서:
+     *  - 플레이어 1 풍선들: 파란(BALLOON) 2개 + 초록(TRICK) 2개
+     *  - 플레이어 2 풍선들: 파란(BALLOON) 2개 + 초록(TRICK) 2개
+     * 로 category를 미리 배치한다.
+     */
+    public void assignFixedCategoriesForVersus(List<Balloon> p1Balloons,
+                                               List<Balloon> p2Balloons) {
+        assignFixedCategoriesForOnePlayer(p1Balloons);
+        assignFixedCategoriesForOnePlayer(p2Balloons);
+    }
+
+    /**
+     * 한 플레이어 풍선 리스트에 대해
+     *  - 파란(BALLOON) 카테고리 2개
+     *  - 초록(TRICK) 카테고리 2개
+     * 만 설정하고 나머지는 NONE 으로 만든다.
+     */
+    private void assignFixedCategoriesForOnePlayer(List<Balloon> balloons) {
+        if (balloons == null || balloons.isEmpty()) return;
+
+        // 전체 풍선을 섞어서 랜덤한 풍선에 아이템이 붙도록 함
+        List<Balloon> shuffled = new ArrayList<>(balloons);
+        Collections.shuffle(shuffled, rnd);
+
+        // 일단 전부 NONE 으로 초기화(아이템 없는 풍선)
+        for (Balloon b : shuffled) {
+            b.setCategory(SecretItemSkin.ItemCategory.NONE);
+        }
+
+        int idx = 0;
+
+        // 1) 파란 풍선 아이템(BALLOON) 2개
+        for (int i = 0; i < 2 && idx < shuffled.size(); i++) {
+            Balloon b = shuffled.get(idx++);
+            b.setCategory(SecretItemSkin.ItemCategory.BALLOON);
+        }
+
+        // 2) 초록 트릭 아이템(TRICK) 2개
+        for (int i = 0; i < 2 && idx < shuffled.size(); i++) {
+            Balloon b = shuffled.get(idx++);
+            b.setCategory(SecretItemSkin.ItemCategory.TRICK);
+        }
+    }
+
 }

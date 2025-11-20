@@ -76,6 +76,18 @@ public class VersusGamePanel extends JPanel implements Showable {
     private boolean started = false;
     private boolean finished = false;
 
+    // 나(me)가 맡은 역할과 반대편(상대방) 역할을 구하는 헬퍼
+    private String getRivalRole() {
+        if ("P1".equals(myRole)) {
+            return "P2";
+        } else if ("P2".equals(myRole)) {
+            return "P1";
+        } else {
+            // 혹시 모를 예외 상황: 기본값은 그냥 내 역할 그대로
+            return myRole;
+        }
+    }
+
     // 한 플레이어가 시작할 때 풍선 개수
     private static final int TOTAL_BALLOONS_PER_PLAYER = 30;  // 3+4+5+6+5+4+3
 
@@ -471,7 +483,8 @@ public class VersusGamePanel extends JPanel implements Showable {
                 Item item = itemBalloons.get(b);
                 if (item != null) {
                     switch (item.getKind()) {
-                        case BALLOON_PLUS_2, BALLOON_MINUS_2 -> {
+                        case BALLOON_PLUS_2, BALLOON_MINUS_2,
+                             SELF_BALLOON_PLUS_2, SELF_BALLOON_MINUS_2 -> {
                             // 풍선 아이템: 파란 글씨
                             textColor = new Color(120, 160, 255);
                         }
@@ -615,22 +628,49 @@ public class VersusGamePanel extends JPanel implements Showable {
                     }
                 }
                 else if (msg.startsWith("REVERSE ")) {
-                    // 포맷: REVERSE <타겟역할> <지속ms>
+                    // 포맷: REVERSE <아이템을 사용한(공격자) 역할> <지속ms>
                     String[] parts = msg.split(" ");
                     if (parts.length >= 3) {
-                        final String targetRole = parts[1].trim();
+                        // 서버에서 온 건 "누가 REVERSE를 썼는지" (공격자) 라고 해석
+                        final String casterRole = parts[1].trim();  // 기존 targetRole 이름만 바꿔줌
                         final long duration = Long.parseLong(parts[2]);
-                        final int targetIndex = "P1".equals(targetRole) ? 0 : 1;
+
+                        // 공격자 인덱스 (0 = P1, 1 = P2)
+                        final int casterIndex = "P1".equals(casterRole) ? 0 : 1;
+
+                        // 진짜 피해를 받을 타겟 인덱스는 "상대방"
+                        final int targetIndex = (casterIndex == 0) ? 1 : 0;
 
                         SwingUtilities.invokeLater(() -> {
-                            // 실제 reverse 상태 켜기
+
+                            // 0) 혹시 남아 있던 reverse 상태 초기화
+                            for (int i = 0; i < 2; i++) {
+                                reverseActive[i] = false;
+                                reverseRemainSeconds[i] = 0;
+                            }
+
+                            // 1) 타겟 플레이어에게만 reverse 켜기
                             activateReverseFor(targetIndex, duration);
-                            // 내 입장 기준 안내 문구
-                            showReverseMessage(targetRole, duration);
+
+                            // 2) "내 입장" 기준으로, 내가 타겟인지 계산
+                            boolean iAmTarget;
+                            if ("P1".equals(myRole)) {
+                                iAmTarget = (targetIndex == 0);
+                            } else if ("P2".equals(myRole)) {
+                                iAmTarget = (targetIndex == 1);
+                            } else {
+                                iAmTarget = false;
+                            }
+
+                            // 3) 그에 맞는 문구 보여주기
+                            showReverseMessage(iAmTarget);
                             repaint();
                         });
                     }
                 }
+
+
+
 
             }
         } catch (Exception e) {
@@ -727,9 +767,11 @@ public class VersusGamePanel extends JPanel implements Showable {
     }
 
     // REVERSE 안내 문구를 "내 입장" 기준으로 만들어 주는 메서드
-    private void showReverseMessage(String targetRole, long durationMillis) {
+// iAmTarget: true  → 내가 거꾸로 쳐야 함
+//           false → 상대가 거꾸로 침
+    private void showReverseMessage(boolean iAmTarget) {
         String msg;
-        if (targetRole.equals(myRole)) {
+        if (iAmTarget) {
             msg = "10초간 단어를 거꾸로 입력해야 합니다!";
         } else {
             msg = "상대가 10초간 거꾸로 입력합니다!";
@@ -737,6 +779,7 @@ public class VersusGamePanel extends JPanel implements Showable {
 
         showCenterReverseMessage(msg);
     }
+
 
     private java.util.List<Balloon> getBalloonListFor(String who) {
         if ("P1".equals(who)) return p1Balloons;
@@ -884,13 +927,22 @@ public class VersusGamePanel extends JPanel implements Showable {
         int centerRight = w * 3 / 4;
         double balloonAnchorY = h - 260;
 
-        java.util.List<Point> leftPos = buildBalloonPositions(centerLeft, balloonAnchorY);
+        java.util.List<Point> leftPos  = buildBalloonPositions(centerLeft,  balloonAnchorY);
         java.util.List<Point> rightPos = buildBalloonPositions(centerRight, balloonAnchorY);
 
-        int leftCount = Math.min(TOTAL_BALLOONS_PER_PLAYER, leftPos.size());
+        int leftCount  = Math.min(TOTAL_BALLOONS_PER_PLAYER, leftPos.size());
         int rightCount = Math.min(TOTAL_BALLOONS_PER_PLAYER, rightPos.size());
 
-        // P1 풍선
+        // ★ 두 클라이언트가 완전히 같은 배치를 갖도록 고정 seed 사용
+        Random layoutRnd = new Random(7777L);
+
+        Balloon.Kind[] kinds = {
+                Balloon.Kind.RED,
+                Balloon.Kind.GREEN,
+                Balloon.Kind.BLUE
+        };
+
+        // ----- P1 풍선 -----
         for (int i = 0; i < leftCount; i++) {
             Point p = leftPos.get(i);
             String word;
@@ -900,17 +952,19 @@ public class VersusGamePanel extends JPanel implements Showable {
                 word = "P1-" + (i + 1);
             }
 
+            Balloon.Kind kind = kinds[layoutRnd.nextInt(kinds.length)];
+
             Balloon b = new Balloon(
                     word,
                     p.x,
                     p.y,
-                    randomKind()
+                    kind
             );
             p1Balloons.add(b);
-            attachRandomItemToBalloon("P1", b);
+            // ★ 여기서는 아이템 안 붙임
         }
 
-        // P2 풍선
+        // ----- P2 풍선 -----
         for (int i = 0; i < rightCount; i++) {
             Point p = rightPos.get(i);
             String word;
@@ -920,18 +974,144 @@ public class VersusGamePanel extends JPanel implements Showable {
                 word = "P2-" + (i + 1);
             }
 
+            Balloon.Kind kind = kinds[layoutRnd.nextInt(kinds.length)];
+
             Balloon b = new Balloon(
                     word,
                     p.x,
                     p.y,
-                    randomKind()
+                    kind
             );
             p2Balloons.add(b);
-            attachRandomItemToBalloon("P2", b);
+            // ★ 여기서도 아이템 안 붙임
         }
+
+        // ★ 여기서 아이템 2+2 고정 배치 (같은 layoutRnd 사용)
+        assignFixedItemsForVersus(layoutRnd);
 
         p1Remaining = p1Balloons.size();
         p2Remaining = p2Balloons.size();
+    }
+
+    // 듀얼 모드: 플레이어당
+// - 파란 풍선 아이템 2개 (내/상대 필드 ±2 네 가지 중 랜덤)
+// - 초록 트릭 아이템 2개 (REVERSE_5S)
+    private void assignFixedItemsForVersus(Random rndLayout) {
+        assignFixedItemsForPlayer("P1", p1Balloons, rndLayout);
+        assignFixedItemsForPlayer("P2", p2Balloons, rndLayout);
+    }
+
+    private void assignFixedItemsForPlayer(
+            String owner,
+            java.util.List<Balloon> balloons,
+            Random rndLayout
+    ) {
+        if (balloons == null || balloons.isEmpty()) return;
+
+        // 1) 기존 아이템/카테고리 초기화
+        for (Balloon b : balloons) {
+            b.setCategory(ItemCategory.NONE);
+            b.setAttachedItem(null);
+            itemBalloons.remove(b);
+        }
+
+        // 2) 어떤 풍선이 아이템 풍선이 될지 랜덤으로 고르기
+        java.util.List<Balloon> shuffled = new ArrayList<>(balloons);
+        Collections.shuffle(shuffled, rndLayout);
+
+        int idx = 0;
+
+        // ----- 파란 풍선 아이템 2개 -----
+        for (int i = 0; i < 2 && idx < shuffled.size(); i++) {
+            Balloon b = shuffled.get(idx++);
+
+            // 네 가지 중 하나를 랜덤 선택
+            ItemKind[] blueKinds = {
+                    ItemKind.BALLOON_PLUS_2,        // 상대 풍선 +2
+                    ItemKind.BALLOON_MINUS_2,       // 상대 풍선 -2
+                    ItemKind.SELF_BALLOON_PLUS_2,   // 내 풍선 +2
+                    ItemKind.SELF_BALLOON_MINUS_2   // 내 풍선 -2
+            };
+            ItemKind kind = blueKinds[rndLayout.nextInt(blueKinds.length)];
+
+            Item item = new Item(kind, 0, 0);
+            b.setCategory(ItemCategory.BALLOON); // 파란 글자
+            b.setAttachedItem(item);
+            itemBalloons.put(b, item);
+
+            System.out.println("[ITEM-FIXED] BLUE " + kind + " to " + owner +
+                    " word=" + b.getWord());
+        }
+
+        // ----- 초록 트릭 아이템 2개 -----
+        for (int i = 0; i < 2 && idx < shuffled.size(); i++) {
+            Balloon b = shuffled.get(idx++);
+
+            ItemKind kind = ItemKind.REVERSE_5S; // 나중에 BLIND_5S도 섞고 싶으면 여기서 랜덤 선택
+            Item item = new Item(kind, 0, 0);
+            b.setCategory(ItemCategory.TRICK); // 초록 글자
+            b.setAttachedItem(item);
+            itemBalloons.put(b, item);
+
+            System.out.println("[ITEM-FIXED] GREEN " + kind + " to " + owner +
+                    " word=" + b.getWord());
+        }
+    }
+
+    // 듀얼 모드: 플레이어당
+    // - 파란 풍선 아이템( BALLOON_PLUS_2 / BALLOON_MINUS_2 ) 2개
+    // - 초록 트릭 아이템( REVERSE_5S ) 2개
+    // 만 배치
+    private void assignFixedItemsForVersus() {
+        assignFixedItemsForPlayer("P1", p1Balloons);
+        assignFixedItemsForPlayer("P2", p2Balloons);
+    }
+
+    private void assignFixedItemsForPlayer(String owner, java.util.List<Balloon> balloons) {
+        if (balloons == null || balloons.isEmpty()) return;
+
+        // 1) 기존 아이템/카테고리 싹 초기화
+        for (Balloon b : balloons) {
+            b.setCategory(ItemCategory.NONE);
+            b.setAttachedItem(null);
+            itemBalloons.remove(b);
+        }
+
+        // 2) 랜덤으로 섞어서 어떤 풍선이 아이템풍선이 될지 결정
+        java.util.List<Balloon> shuffled = new ArrayList<>(balloons);
+        Collections.shuffle(shuffled, rnd);
+
+        int idx = 0;
+
+        // 3) 파란 풍선 아이템 2개 (BALLOON_PLUS_2 / BALLOON_MINUS_2)
+        for (int i = 0; i < 2 && idx < shuffled.size(); i++) {
+            Balloon b = shuffled.get(idx++);
+
+            // 두 개 중 하나는 +2, 하나는 -2 정도로
+            ItemKind kind = (i == 0) ? ItemKind.BALLOON_PLUS_2 : ItemKind.BALLOON_MINUS_2;
+
+            Item item = new Item(kind, 0, 0);
+            b.setCategory(ItemCategory.BALLOON);
+            b.setAttachedItem(item);
+            itemBalloons.put(b, item);
+
+            System.out.println("[ITEM-FIXED] attach " + kind + " to " + owner +
+                    " word=" + b.getWord());
+        }
+
+        // 4) 초록 트릭 아이템 2개 (REVERSE_5S 고정)
+        for (int i = 0; i < 2 && idx < shuffled.size(); i++) {
+            Balloon b = shuffled.get(idx++);
+
+            ItemKind kind = ItemKind.REVERSE_5S;
+            Item item = new Item(kind, 0, 0);
+            b.setCategory(ItemCategory.TRICK);
+            b.setAttachedItem(item);
+            itemBalloons.put(b, item);
+
+            System.out.println("[ITEM-FIXED] attach " + kind + " to " + owner +
+                    " word=" + b.getWord());
+        }
     }
 
     // 풍선에 랜덤 아이템 붙이기
@@ -1151,12 +1331,14 @@ public class VersusGamePanel extends JPanel implements Showable {
         typedWord = typedWord.trim();
         if (typedWord.isEmpty()) return;
 
-        // reverse 상태라면, 사용자가 거꾸로 입력한 걸 다시 뒤집어서 원래 단어로
+        // reverse 상태라면, 사용자가 거꾸로 입력한 걸
+        // 다시 뒤집어서 "원래 단어"로 되돌린다.
         String effectiveWord = typedWord;
         if (isReverseActiveForMe()) {
             effectiveWord = new StringBuilder(typedWord).reverse().toString();
         }
 
+        // 내 풍선 리스트에서 effectiveWord를 찾는다
         boolean popped = tryPopMyBalloon(effectiveWord);
 
         if (!popped) {
@@ -1167,12 +1349,15 @@ public class VersusGamePanel extends JPanel implements Showable {
             return;
         }
 
-        removeMyBalloon(typedWord);
+        // 남은 개수/점수 처리도 같은 단어 기준으로
+        removeMyBalloon(effectiveWord);
 
+        // 서버에도 같은 단어(effectiveWord) 전송
         if (netClient != null) {
-            netClient.sendPop(typedWord);
+            netClient.sendPop(effectiveWord);
         }
 
+        // 올클리어 체크
         if (myAllCleared() && !finished) {
             finished = true;
             if (netClient != null) {
@@ -1180,6 +1365,7 @@ public class VersusGamePanel extends JPanel implements Showable {
             }
         }
     }
+
 
     // 듀얼 인트로(미션 안내 + START!) 표시
     private void drawStartMessage(Graphics2D g2, int w, int h) {
