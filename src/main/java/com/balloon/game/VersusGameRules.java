@@ -1,10 +1,6 @@
 package com.balloon.game;
 
-/**
- * VersusGameRules
- * - 듀얼 모드 한 판의 룰/상태/승패 판정을 담당
- * - 네트워크/UI랑은 분리된 순수 로직
- */
+
 public class VersusGameRules {
 
     // 승자
@@ -34,17 +30,13 @@ public class VersusGameRules {
 
         // 내부 업데이트 메서드들
 
+        /** 생성 시 초기 시간 설정 (지금은 듀얼에서 승패에는 사용 안 함) */
         void setInitialTime(int seconds) {
             this.timeLeft = Math.max(0, seconds);
         }
 
-        void tickTime() {
-            if (dead || cleared) return;
-            timeLeft = Math.max(0, timeLeft - 1);
-            if (timeLeft == 0) {
-                dead = true;
-            }
-        }
+        /** 1초 틱마다 호출됨 (듀얼에서는 승패에 영향 X) */
+        void tickTime() {}
 
         void markCleared() {
             this.cleared = true;
@@ -91,10 +83,13 @@ public class VersusGameRules {
 
     /** 1초 틱마다 호출 (타이머에서) */
     public void onTick() {
-        if (isFinished()) return; // 시간 0 이후 무한루프 방지
+        if (isFinished()) return;
 
+        // 시간 경과는 기록만 하고, 승패 판정에는 사용하지 않는다.
         p1.tickTime();
         p2.tickTime();
+
+        // 시간만으로는 winner를 결정하지 않으므로 여기서 winner가 바뀌지 않는다.
         decideWinnerIfNeeded();
     }
 
@@ -190,35 +185,6 @@ public class VersusGameRules {
         if (!p1.isCleared() && p2.isCleared()) {
             winner = Winner.P2;
             return;
-        }
-
-        // 3) 시간/목숨으로 종료되는 케이스
-        boolean p1Dead = p1.isDead() || p1.getTimeLeft() <= 0;
-        boolean p2Dead = p2.isDead() || p2.getTimeLeft() <= 0;
-
-        if (!p1Dead && !p2Dead) return; // 둘 다 살아있으면 아직 끝 아님
-
-        // 둘 다 동시에 죽음 → 점수/정확도로 승패 or 무승부
-        if (p1Dead && p2Dead) {
-            if (p1.getScore() > p2.getScore()) {
-                winner = Winner.P1;
-            } else if (p1.getScore() < p2.getScore()) {
-                winner = Winner.P2;
-            } else {
-                double acc1 = p1.getAccuracy();
-                double acc2 = p2.getAccuracy();
-                if (acc1 > acc2) winner = Winner.P1;
-                else if (acc1 < acc2) winner = Winner.P2;
-                else winner = Winner.DRAW;
-            }
-            return;
-        }
-
-        // 4) 한쪽만 죽었으면 → 살아있는 쪽 승리
-        if (p1Dead && !p2Dead) {
-            winner = Winner.P2;
-        } else if (!p1Dead && p2Dead) {
-            winner = Winner.P1;
         }
     }
 }

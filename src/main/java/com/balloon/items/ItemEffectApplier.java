@@ -19,6 +19,11 @@ public class ItemEffectApplier {
     public interface FieldApi {
         void addBalloons(int n);
         void removeBalloons(int n);
+
+        // ★ 추가: 상대에게 reverse 상태를 거는 기능
+        default void activateReverseOnOpponent(long durationMillis) {
+            // 기본 구현: 아무 것도 안 함 (싱글 모드에서는 필요 없음)
+        }
     }
 
     // 듀얼 모드용 BLIND 콜백
@@ -99,11 +104,14 @@ public class ItemEffectApplier {
                 }
                 break;
 
-            case REVERSE:
-                // 나중에 진짜 효과 넣을 수 있게 임시 처리
+            case REVERSE_5S:
+                // 상대에게 일정 시간 reverse 상태 적용
+                if (fieldApi != null) {
+                    fieldApi.activateReverseOnOpponent(10000); // 10초
+                }
                 if (uiApi != null) {
-                    uiApi.showToast("REVERSE 아이템은 아직 준비 중!");
-                    uiApi.flashEffect(false);
+                    uiApi.showToast("상대가 10초간 거꾸로 타이핑!");
+                    uiApi.flashEffect(true);
                 }
                 break;
 
@@ -112,5 +120,4 @@ public class ItemEffectApplier {
                 break;
         }
     }
-
 }

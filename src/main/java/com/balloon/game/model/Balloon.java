@@ -1,6 +1,7 @@
 package com.balloon.game.model;
 
 import com.balloon.ui.skin.SecretItemSkin.ItemCategory; // 글자색을 정할 카테고리(시간/풍선/트릭/일반)
+import com.balloon.items.Item;
 
 /**
  * Balloon
@@ -17,6 +18,8 @@ public class Balloon {
     private float x;             // 화면상 X 좌표
     private float y;             // 화면상 Y 좌표
     private final Kind kind;     // 외형(렌더링에 쓰일 수도 있음)
+    private Item attachedItem;  // 풍선에 붙은 아이템(없으면 null)
+
 
     private boolean active = true;
     // --- [Day 9] 글자색을 위한 카테고리 ---
@@ -62,5 +65,21 @@ public class Balloon {
     public void setCategory(ItemCategory category) {
         this.category = (category != null) ? category : ItemCategory.NONE;
     }
+
+    public Item getAttachedItem() {
+        return attachedItem;
+    }
+
+    public void setAttachedItem(Item item) {
+        this.attachedItem = item;
+    }
+
+    /** 아이템을 떼어내서 반환 (한 번만 적용되도록) */
+    public Item detachAttachedItem() {
+        Item tmp = attachedItem;
+        attachedItem = null;
+        return tmp;
+    }
+
 
 }

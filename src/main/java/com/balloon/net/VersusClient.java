@@ -18,34 +18,55 @@ public class VersusClient {
         out.println("JOIN " + nickname);
     }
 
-    // 풍선 POP 전송
+    /** 단어 POP 전송 */
     public void sendPop(String word) {
         out.println("POP " + word);
     }
 
-    // 라운드 종료 전송
+    /** 라운드 종료 통보 */
     public void sendFinish() {
         out.println("FINISH");
     }
 
-    // 서버에서 한 줄 메시지 받기
+    /** 서버에서 한 줄 읽기 */
     public String readLine() throws IOException {
         return in.readLine();
     }
 
-    // 소켓 닫기
+    /** 소켓 닫기 */
     public void close() throws IOException {
         socket.close();
     }
 
-    // 라운드 재시작 요청
+    /** 클라이언트에서 RETRY 요청 보낼 때 사용 */
     public void sendRetry() {
         out.println("RETRY");
     }
 
-    // 🔥 BLIND 아이템 사용 전송 (ROLE 포함)
+    /**
+     * 아이템 토스트를 서버로 전송
+     * flag: "1" = 좋은 효과, "0" = 나쁜 효과
+     * msg:  토스트에 표시할 문자열
+     *
+     * 예) TOAST 1 내 풍선 +2!
+     */
+    public void sendToast(String flag, String msg) {
+        out.println("TOAST " + flag + " " + msg);
+    }
+
+    /**
+     * REVERSE 아이템 발동을 서버로 전송
+     * targetRole: "P1" 또는 "P2"
+     * durationMillis: reverse 지속 시간(ms)
+     *
+     * 예) REVERSE P2 5000
+     */
+    public void sendReverse(String targetRole, long durationMillis) {
+        out.println("REVERSE " + targetRole + " " + durationMillis);
+    }
+
+    //  BLIND 아이템 사용 전송 (ROLE 포함)
     public void sendBlind() {
         out.println("BLIND");  // 예: "BLIND P1"
     }
-
 }
