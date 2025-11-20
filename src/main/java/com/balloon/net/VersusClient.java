@@ -38,4 +38,10 @@ public class VersusClient {
     public void sendRetry() {
         out.println("RETRY");   // 그냥 한 줄 보내면 됨
     }
+
+    // VersusClient.java 안에 추가
+    public void sendReverse(String targetRole, long durationMillis) {
+        out.println("REVERSE " + targetRole + " " + durationMillis);
+    }
+
 }
