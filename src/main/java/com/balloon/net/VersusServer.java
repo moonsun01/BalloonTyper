@@ -90,7 +90,12 @@ public class VersusServer {
                             if (poppedWords.add(word)) {
                                 broadcast(p1, p2, "POP P1 " + word);
                             }
-                        } else if (line.equals("FINISH")) {
+                        }
+                        // ★ 추가: REVERSE 메시지는 그대로 양쪽에 전달만 한다
+                        else if (line.startsWith("REVERSE ")) {
+                            // line 예시: "REVERSE P2 5000"
+                            broadcast(p1, p2, line);
+                        }else if (line.equals("FINISH")) {
                             if (!finished) {
                                 winnerRole = "P1";
                             } else if ("P2".equals(winnerRole)) {
@@ -123,7 +128,11 @@ public class VersusServer {
                             if (poppedWords.add(word)) {
                                 broadcast(p1, p2, "POP P2 " + word);
                             }
-                        } else if (line.equals("FINISH")) {
+                        }
+                        // ★ 여기에도 REVERSE 분기 추가
+                        else if (line.startsWith("REVERSE ")) {
+                            broadcast(p1, p2, line);
+                        }else if (line.equals("FINISH")) {
                             if (!finished) {
                                 winnerRole = "P2";
                             } else if ("P1".equals(winnerRole)) {
