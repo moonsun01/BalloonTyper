@@ -96,7 +96,10 @@ public class VersusGamePanel extends JPanel implements Showable {
     private int p2Remaining = TOTAL_BALLOONS_PER_PLAYER;
 
     // 랜덤 (풍선 색, 아이템)
-    private final Random rnd = new Random();
+    //private final Random rnd = new Random();
+    // after (seed 고정)
+    private final Random rnd = new Random(7777L);
+
     private final Map<Balloon, Image> balloonImages = new HashMap<>();
 
     // 아이템 적용기
@@ -753,6 +756,9 @@ public class VersusGamePanel extends JPanel implements Showable {
             rules.onPop(playerIndex, 0, allCleared);
         }
 
+        // ★ POP 때문에 누군가 풍선을 다 터뜨렸다면, 결과 띄우기
+        checkAndStartLocalResult();
+
         repaint();
     }
 
@@ -773,6 +779,9 @@ public class VersusGamePanel extends JPanel implements Showable {
             boolean allCleared = myAllCleared();
             rules.onPop(playerIndex, 0, allCleared);
         }
+
+        // ★ 내 풍선 개수가 0개가 됐는지 확인해서, 되면 바로 결과 화면 띄우기
+        checkAndStartLocalResult();
 
         repaint();
     }
@@ -939,6 +948,35 @@ public class VersusGamePanel extends JPanel implements Showable {
         }
         return false;
     }
+
+    // ★ 풍선 개수만 보고 로컬에서 승패 판단해서 결과 화면 띄우기
+    private void checkAndStartLocalResult() {
+        // 이미 결과가 떠 있으면 다시 하지 않음
+        if (resultState != ResultState.NONE || finished) {
+            return;
+        }
+
+        boolean p1Cleared = (p1Remaining <= 0);
+        boolean p2Cleared = (p2Remaining <= 0);
+
+        // 아직 아무도 다 못 터뜨렸으면 리턴
+        if (!p1Cleared && !p2Cleared) {
+            return;
+        }
+
+        ResultState state;
+        if (p1Cleared && p2Cleared) {
+            state = ResultState.DRAW;
+        } else if (p1Cleared) {
+            state = ResultState.P1_WIN;
+        } else {
+            state = ResultState.P2_WIN;
+        }
+
+        // 네가 전에 만들어둔 결과 화면 로직 그대로 사용
+        startResultSequence(state);
+    }
+
 
     // 듀얼 시작 시 풍선 스폰 (P1=왼쪽, P2=오른쪽)
     private void spawnInitialBalloons() {
@@ -1263,6 +1301,8 @@ public class VersusGamePanel extends JPanel implements Showable {
             if (p2Remaining > 0) p2Remaining--;
         }
 
+        checkAndStartLocalResult();
+
         repaint();
         return true;
     }
@@ -1506,17 +1546,38 @@ public class VersusGamePanel extends JPanel implements Showable {
 
     // 아이템 토스트 표시 (broadcast: 서버로도 알릴지 여부)
     private void showItemToast(String msg, boolean positive, boolean broadcast) {
+        // 1) 토스트 내용 / 색 / 만료시각 설정
         itemToastText = msg;
         itemToastPositive = positive;
-        itemToastExpireAt = System.currentTimeMillis() + 2000; // 2초 유지
+
+        // reverse처럼 너무 길지 않게 1.2초만 보여주고 싶으면 1200으로,
+        // 지금처럼 2초 유지하고 싶으면 2000으로 두면 돼.
+        long duration = 1200L; // 필요하면 2000L로 바꿔도 됨
+        itemToastExpireAt = System.currentTimeMillis() + duration;
+
+        // 2) 바로 한 번 그려주고
         repaint();
 
-        // 내가 직접 아이템을 썼을 때만 서버로 알림 → 서버가 양쪽에 브로드캐스트
+        // 3) duration 후에 문구를 자동으로 지우는 타이머 (아주 작은 추가)
+        javax.swing.Timer t = new javax.swing.Timer((int) duration + 100, e -> {
+            // 혹시 그 사이에 다른 토스트가 뜬 경우를 대비해서 한 번 더 체크
+            long now = System.currentTimeMillis();
+            if (itemToastText != null && now >= itemToastExpireAt) {
+                itemToastText = null;
+                repaint();
+            }
+            ((javax.swing.Timer) e.getSource()).stop();
+        });
+        t.setRepeats(false);
+        t.start();
+
+        // 4) 서버 브로드캐스트는 기존 그대로 유지
         if (broadcast && netClient != null) {
             String flag = positive ? "1" : "0"; // 1 = 좋은 효과, 0 = 나쁜 효과
             netClient.sendToast(flag, msg);
         }
     }
+
 
     /**
      * targetRole("P1"/"P2") 쪽 풍선 개수가 deltaCount만큼 변했을 때,
