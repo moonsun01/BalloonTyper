@@ -19,6 +19,11 @@ public class ItemEffectApplier {
     public interface FieldApi {
         void addBalloons(int n);
         void removeBalloons(int n);
+
+        // ★ 추가: 상대에게 reverse 상태를 거는 기능
+        default void activateReverseOnOpponent(long durationMillis) {
+            // 기본 구현: 아무 것도 안 함 (싱글 모드에서는 필요 없음)
+        }
     }
 
     private final TimeApi timeApi;
@@ -66,6 +71,17 @@ public class ItemEffectApplier {
                 if (fieldApi != null) fieldApi.removeBalloons(2);
                 if (uiApi != null) {
                     uiApi.showToast("풍선 -2!");
+                    uiApi.flashEffect(true);
+                }
+            }
+
+            case REVERSE_5S -> {
+                if (fieldApi != null) {
+                    // 5초 동안 상대에게 reverse 상태 적용
+                    fieldApi.activateReverseOnOpponent(10000);
+                }
+                if (uiApi != null) {
+                    uiApi.showToast("상대가 10초간 거꾸로 타이핑!");
                     uiApi.flashEffect(true);
                 }
             }
