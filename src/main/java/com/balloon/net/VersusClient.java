@@ -43,6 +43,10 @@ public class VersusClient {
         out.println("RETRY");
     }
 
+    public void sendExit() {
+        out.println("EXIT");
+    }
+
     /**
      * 아이템 토스트를 서버로 전송
      * flag: "1" = 좋은 효과, "0" = 나쁜 효과

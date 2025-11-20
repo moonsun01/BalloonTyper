@@ -196,7 +196,7 @@ public class VersusGamePanel extends JPanel implements Showable {
             inputField.setText("");
         });
 
-        // 결과 화면 클릭 처리 (RETRY / HOME)
+        // 결과 화면 클릭 처리 (HOME만)
         addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
@@ -204,9 +204,7 @@ public class VersusGamePanel extends JPanel implements Showable {
 
                 Point p = e.getPoint();
 
-                if (retryRect != null && retryRect.contains(p)) {
-                    handleRetryClicked();
-                } else if (homeRect != null && homeRect.contains(p)) {
+                if (homeRect != null && homeRect.contains(p)) {
                     handleHomeClicked();
                 }
             }
@@ -1852,6 +1850,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         int leftW  = fm.stringWidth(leftText);
         int rightW = fm.stringWidth(rightText);
 
+        // 아직 버튼 오버레이 안 띄운 상태라면, 텍스트만
         if (!showRetryOverlay) {
             g2.setColor(leftColor);
             g2.drawString(leftText, centerLeftX - leftW / 2, centerY);
@@ -1870,6 +1869,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         g2.fillRect(0, 0, w, h);
         g2.setComposite(oldComp);
 
+        // WIN / LOSE 텍스트 다시 그리기
         g2.setFont(bigFont);
         fm = g2.getFontMetrics();
 
@@ -1879,7 +1879,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         g2.setColor(rightColor);
         g2.drawString(rightText, centerRightX - rightW / 2, centerY);
 
-        String retryText = "RETRY";
+        // === 여기부터 HOME 버튼 하나만 ===
         String homeText  = "HOME";
 
         Font buttonFont = HUDRenderer.HUD_FONT
@@ -1889,29 +1889,16 @@ public class VersusGamePanel extends JPanel implements Showable {
 
         int buttonW = 200;
         int buttonH = 60;
-        int gap = 40;
 
         int centerX = w / 2;
         int btnTop = centerY + 70;
 
-        int retryX = centerX - buttonW - gap / 2;
-        int homeX  = centerX + gap / 2;
+        int homeX  = centerX - buttonW / 2;
 
         Color btnBg = new Color(0, 0, 0, 150);
         g2.setStroke(new BasicStroke(3f));
 
-        // RETRY
-        g2.setColor(btnBg);
-        g2.fillRoundRect(retryX, btnTop, buttonW, buttonH, 18, 18);
-        g2.setColor(Color.WHITE);
-        g2.drawRoundRect(retryX, btnTop, buttonW, buttonH, 18, 18);
-
-        int retryTextW = fmBtn.stringWidth(retryText);
-        int retryTextX = retryX + (buttonW - retryTextW) / 2;
-        int retryTextY = btnTop + (buttonH + fmBtn.getAscent()) / 2 - 4;
-        g2.drawString(retryText, retryTextX, retryTextY);
-
-        // HOME
+        // HOME 버튼
         g2.setColor(btnBg);
         g2.fillRoundRect(homeX, btnTop, buttonW, buttonH, 18, 18);
         g2.setColor(Color.WHITE);
@@ -1922,7 +1909,8 @@ public class VersusGamePanel extends JPanel implements Showable {
         int homeTextY = btnTop + (buttonH + fmBtn.getAscent()) / 2 - 4;
         g2.drawString(homeText, homeTextX, homeTextY);
 
-        retryRect = new Rectangle(retryX, btnTop, buttonW, buttonH);
+        // 클릭 영역: HOME만
+        // retryRect는 더 이상 사용 안 함
         homeRect  = new Rectangle(homeX,  btnTop, buttonW, buttonH);
 
         g2.setFont(oldFont);
@@ -2048,7 +2036,9 @@ public class VersusGamePanel extends JPanel implements Showable {
     private void handleHomeClicked() {
         try {
             if (netClient != null) {
-                netClient.close();
+                // 서버에 EXIT 전송 → 서버는 keepPlaying=false로 while 종료
+                netClient.sendExit();
+                netClient.close();   // VersusClient에 close() 있으면 호출
             }
         } catch (Exception ignore) {}
 
@@ -2056,8 +2046,13 @@ public class VersusGamePanel extends JPanel implements Showable {
         finished = true;
         showRetryOverlay = false;
 
+        inputField.setText("");
+        inputField.setEnabled(false);
+
+        // 듀얼 모드 선택 화면으로 돌아가는 START 화면
         router.show(ScreenId.START);
     }
+
 
     // 풍선마다 랜덤 색 PNG 하나 골라서 매핑해 두는 헬퍼
     private void assignRandomImageToBalloon(Balloon b) {
@@ -2078,36 +2073,4 @@ public class VersusGamePanel extends JPanel implements Showable {
         // 이 풍선에 어떤 이미지를 쓸지 저장
         balloonImages.put(b, img);
     }
-
-    // RETRY 클릭
-    private void handleRetryClicked() {
-        finished = false;
-        resultState = ResultState.NONE;
-        showRetryOverlay = false;
-
-        p1Remaining = TOTAL_BALLOONS_PER_PLAYER;
-        p2Remaining = TOTAL_BALLOONS_PER_PLAYER;
-
-        // 단어 공급기 리셋 (양쪽 클라가 같은 CSV 순서에서 다시 시작)
-        resetWordProviders();
-
-        // 풍선 새로 스폰 (여기서 아이템까지 다시 붙음)
-        spawnInitialBalloons();
-
-        // 룰 초기화
-        rules = new VersusGameRules(INITIAL_TIME_SECONDS);
-
-        // 입력창 다시 활성화 + 포커스
-        inputField.setText("");
-        inputField.setEnabled(true);
-        inputField.setVisible(true);
-        SwingUtilities.invokeLater(() -> inputField.requestFocusInWindow());
-
-        repaint();
-
-        if (netClient != null) {
-            netClient.sendRetry();
-        }
-    }
-
 }
