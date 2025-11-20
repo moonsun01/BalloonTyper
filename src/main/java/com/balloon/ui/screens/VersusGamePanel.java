@@ -622,11 +622,11 @@ public class VersusGamePanel extends JPanel implements Showable {
                 }
                 else if (msg.startsWith("BLIND ")) {
                     // 서버에서 "BLIND P1" 또는 "BLIND P2" 형식으로 옴
-                    String attacker = msg.substring(6).trim(); // P1 / P2 (아이템 사용한 사람)
-                    final String targetRole = "P1".equals(attacker) ? "P2" : "P1";
+                    String attackerRole = msg.substring(6).trim(); // 아이템 사용한 사람(P1 / P2)
 
-                    SwingUtilities.invokeLater(() -> startBlindFor(targetRole));
+                    SwingUtilities.invokeLater(() -> startBlindFor(attackerRole));
                 }
+
                 else if (msg.startsWith("RESULT")) {
                     String[] parts = msg.split(" ");
                     String keyword = (parts.length >= 2) ? parts[1].trim() : "";
@@ -1113,10 +1113,15 @@ public class VersusGamePanel extends JPanel implements Showable {
         }
 
         // ----- 초록 트릭 아이템 2개 -----
+// → reverse 1개 + blind 1개로 고정
         for (int i = 0; i < 2 && idx < shuffled.size(); i++) {
             Balloon b = shuffled.get(idx++);
 
-            ItemKind kind = ItemKind.REVERSE_5S; // 나중에 BLIND_5S도 섞고 싶으면 여기서 랜덤 선택
+            // i == 0 : REVERSE_5S,  i == 1 : BLIND
+            ItemKind kind = (i == 0)
+                    ? ItemKind.REVERSE_5S
+                    : ItemKind.BLIND;
+
             Item item = new Item(kind, 0, 0);
             b.setCategory(ItemCategory.TRICK); // 초록 글자
             b.setAttachedItem(item);
@@ -1125,6 +1130,7 @@ public class VersusGamePanel extends JPanel implements Showable {
             System.out.println("[ITEM-FIXED] GREEN " + kind + " to " + owner +
                     " word=" + b.getWord());
         }
+
     }
 
     // 듀얼 모드: 플레이어당
@@ -1668,20 +1674,41 @@ public class VersusGamePanel extends JPanel implements Showable {
         netClient.sendBlind();
     }
 
-    // 특정 ROLE 보드를 3초 동안 가리기(P1 또는 P2)
-    private void startBlindFor(String role) {
-        if (role == null) return;
+    // BLIND 아이템: 공격자/피격자에 따라 내 화면에서 ME / RIVAL 중 어디를 가릴지 결정
+    private void startBlindFor(String attackerRole) {
+        if (attackerRole == null || myRole == null) return;
 
-        long now  = System.currentTimeMillis();
-        long until = now + 3000L; // 3초
+        long now   = System.currentTimeMillis();
+        long until = now + 3000L; // 3초 유지
 
-        if ("P1".equals(role)) {
-            blindP1 = true;
-            blindEndP1 = until;
-        }
-        if ("P2".equals(role)) {
-            blindP2 = true;
-            blindEndP2 = until;
+        boolean iAmAttacker = attackerRole.equals(myRole);
+
+        // 먼저 둘 다 끄고 시작 (중첩 방지)
+        blindP1 = false;
+        blindP2 = false;
+
+        if (iAmAttacker) {
+            // 내가 BLIND를 쓴 경우 -> 내 화면에서는 RIVAL 영역만 가리기
+            if ("P1".equals(myRole)) {
+                // P1 화면: 왼쪽 = ME(P1), 오른쪽 = RIVAL(P2)
+                blindP2 = true;      // RIVAL(P2) 영역만 블라인드
+                blindEndP2 = until;
+            } else if ("P2".equals(myRole)) {
+                // P2 화면: 왼쪽 = RIVAL(P1), 오른쪽 = ME(P2)
+                blindP1 = true;      // RIVAL(P1) 영역만 블라인드
+                blindEndP1 = until;
+            }
+        } else {
+            // 상대가 BLIND를 쓴 경우 -> 내 화면에서는 ME 영역만 가리기
+            if ("P1".equals(myRole)) {
+                // 난 P1 -> 왼쪽이 ME
+                blindP1 = true;
+                blindEndP1 = until;
+            } else if ("P2".equals(myRole)) {
+                // 난 P2 -> 오른쪽이 ME
+                blindP2 = true;
+                blindEndP2 = until;
+            }
         }
 
         repaint();
@@ -1712,32 +1739,51 @@ public class VersusGamePanel extends JPanel implements Showable {
         t.start();
     }
 
-    // 반쪽만 그리는 오버레이
+    // 반쪽을 3x6 그리드로 꽉 채우는 BLIND 오버레이
     private void drawBlindHalf(Graphics2D g2, int x, int y, int width, int height) {
+
+        // 3 × 6 = 18칸
+        int rows = 6;
+        int cols = 3;
+
+        int cellW = width / cols;
+        int cellH = height / rows;
+
+        // 반투명 블랙 배경
         Composite oldComp = g2.getComposite();
-        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f));
-
-        g2.setColor(new Color(0, 0, 0)); // 완전 검정
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.8f));
+        g2.setColor(new Color(0, 0, 0, 200));
         g2.fillRect(x, y, width, height);
-
         g2.setComposite(oldComp);
 
-        // 중앙 텍스트
-        String text = "블라인드!";
+        // 텍스트 설정
+        String text = "BLIND";
         Font oldFont = g2.getFont();
-        Font f = NAME_FONT.deriveFont(NAME_FONT.getSize2D() + 6.0f);
+        Font f = NAME_FONT.deriveFont(NAME_FONT.getSize2D() + 20.0f);
         g2.setFont(f);
+        g2.setColor(new Color(255, 180, 180));
+
         FontMetrics fm = g2.getFontMetrics();
-
         int textW = fm.stringWidth(text);
-        int tx = x + (width - textW) / 2;
-        int ty = y + height / 2;
+        int textH = fm.getAscent();
 
-        g2.setColor(new Color(255, 160, 160));
-        g2.drawString(text, tx, ty);
+        // 각 칸에 BLIND 텍스트 채우기
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+
+                int cx = x + c * cellW;
+                int cy = y + r * cellH;
+
+                int tx = cx + (cellW - textW) / 2;
+                int ty = cy + (cellH + textH) / 2 - 4;
+
+                g2.drawString(text, tx, ty);
+            }
+        }
 
         g2.setFont(oldFont);
     }
+
 
     // P1 / P2 반쪽만 가리는 블라인드 오버레이
     private void drawBlindOverlay(Graphics2D g2, int w, int h) {

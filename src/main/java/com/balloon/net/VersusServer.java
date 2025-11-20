@@ -111,8 +111,8 @@ public class VersusServer {
 
                         } else if (line.equals("BLIND")) {
                             // 🔥 P1이 BLIND 아이템 사용
-                            // → 두 클라이언트에 "BLIND P1" 전송
-                            broadcast(p1, p2, "BLIND P1");
+                            // → 두 클라이언트에 "BLIND P2" 전송
+                            broadcast(p1, p2, "BLIND P2");
 
 
                         } else if (line.equals("EXIT")) {
@@ -164,8 +164,8 @@ public class VersusServer {
 
                         } else if (line.equals("BLIND")) {
                             //  P2가 BLIND 아이템 사용
-                            // → 두 클라이언트에 "BLIND P2" 전송
-                            broadcast(p1, p2, "BLIND P2");
+                            // → 두 클라이언트에 "BLIND P1" 전송
+                            broadcast(p1, p2, "BLIND P1");
 
 
                         } else if (line.equals("EXIT")) {
