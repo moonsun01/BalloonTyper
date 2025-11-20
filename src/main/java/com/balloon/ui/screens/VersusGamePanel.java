@@ -434,6 +434,17 @@ public class VersusGamePanel extends JPanel implements Showable {
                     SwingUtilities.invokeLater(() -> startResultSequence(finalState));
                     // ★ break 안 함 → 같은 소켓으로 다음 라운드 계속
                 }
+                else if (msg.startsWith("TOAST ")) {
+                    String[] parts = msg.split(" ", 3);
+                    if (parts.length >= 3) {
+                        boolean positive = "1".equals(parts[1]);
+                        String toastMsg = parts[2];
+                        SwingUtilities.invokeLater(() ->
+                                showItemToast(toastMsg, positive, false)  // 🔹 이미 서버에서 온 거라 broadcast = false
+                        );
+                    }
+                }
+
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -539,7 +550,7 @@ public class VersusGamePanel extends JPanel implements Showable {
             if (!b.isActive()) continue;
             if (trimmed.equals(b.getWord())) {
                 b.pop();
-                applyItemIfExists(b);  // ★ 여기서 아이템 실행!
+                applyItemIfExists(b);  // 🔹 로컬 입력 → 서버에 브로드캐스트
                 return true;
             }
         }
@@ -550,7 +561,6 @@ public class VersusGamePanel extends JPanel implements Showable {
     private void applyItemIfExists(Balloon b) {
         if (b == null) return;
 
-        // 🔹 풍선이 들고 있는 아이템 떼어오기 (한 번만 사용)
         Item item = b.detachAttachedItem();
         if (item == null) {
             System.out.println("[ITEM] no item on balloon word=" + b.getWord());
@@ -559,7 +569,6 @@ public class VersusGamePanel extends JPanel implements Showable {
 
         ItemKind kind = item.getKind();
 
-        // 이 풍선이 어느 쪽 필드인지 판정
         String owner;
         if (p1Balloons.contains(b)) {
             owner = "P1";
@@ -575,26 +584,26 @@ public class VersusGamePanel extends JPanel implements Showable {
                 ", word=" + b.getWord());
 
         switch (kind) {
-            // === 상대 필드에 작용하는 아이템 ===
+            // 상대 필드에 작용
             case BALLOON_PLUS_2 -> {
                 addRandomBalloonsTo(opponent, 2);
-                showItemToast("상대 풍선 +2!", true);
+                showBalloonChangeToast(opponent, +2);
             }
             case BALLOON_MINUS_2 -> {
                 removeRandomBalloonFrom(opponent);
                 removeRandomBalloonFrom(opponent);
-                showItemToast("상대 풍선 -2!", true);
+                showBalloonChangeToast(opponent, -2);
             }
 
-            // === 내 필드에 작용하는 아이템 ===
+            // 내 필드에 작용
             case SELF_BALLOON_PLUS_2 -> {
                 addRandomBalloonsTo(owner, 2);
-                showItemToast("내 풍선 +2!", true);
+                showBalloonChangeToast(owner, +2);
             }
             case SELF_BALLOON_MINUS_2 -> {
                 removeRandomBalloonFrom(owner);
                 removeRandomBalloonFrom(owner);
-                showItemToast("내 풍선 -2!", false);
+                showBalloonChangeToast(owner, -2);
             }
 
             default -> {
@@ -602,6 +611,9 @@ public class VersusGamePanel extends JPanel implements Showable {
             }
         }
     }
+
+
+
 
 
 
@@ -628,7 +640,7 @@ public class VersusGamePanel extends JPanel implements Showable {
             if (!b.isActive()) continue;
             if (trimmed.equals(b.getWord())) {
                 b.pop();
-                applyItemIfExists(b);  // ★ 여기서도 아이템 실행!
+                applyItemIfExists(b);   // 🔹 서버에서 온 POP → 토스트만 띄우고 재전송 X
                 return true;
             }
         }
@@ -965,13 +977,58 @@ public class VersusGamePanel extends JPanel implements Showable {
         g2.setFont(oldFont);
     }
 
-    // 아이템 토스트 표시
+    // 네트워크 전송 안 하고 화면에만 토스트 띄우는 간단 버전
     private void showItemToast(String msg, boolean positive) {
+        showItemToast(msg, positive, false);
+    }
+
+
+    // 아이템 토스트 표시 (broadcast: 서버로도 알릴지 여부)
+    private void showItemToast(String msg, boolean positive, boolean broadcast) {
         itemToastText = msg;
         itemToastPositive = positive;
-        itemToastExpireAt = System.currentTimeMillis() + 800;
+        itemToastExpireAt = System.currentTimeMillis() + 2000; // 🔹 2초 유지
         repaint();
+
+        // 내가 직접 아이템을 썼을 때만 서버로 알림 → 서버가 양쪽에 브로드캐스트
+        if (broadcast && netClient != null) {
+            String flag = positive ? "1" : "0"; // 1 = 좋은 효과, 0 = 나쁜 효과
+            netClient.sendToast(flag, msg);     // ⬅ 이 메서드는 VersusClient 에서 추가 (아래에서 설명)
+        }
     }
+
+    /**
+     * targetRole("P1"/"P2") 쪽 풍선 개수가 deltaCount만큼 변했을 때,
+     * 내 화면 기준으로 "내 풍선 ±n", "상대 풍선 ±n" 문구를 만들어서 토스트로 띄우는 헬퍼.
+     */
+    private void showBalloonChangeToast(String targetRole, int deltaCount) {
+        if (targetRole == null) return;
+
+        boolean iAmTarget = targetRole.equals(myRole); // 🔹 내 역할과 같은지
+        boolean gained = (deltaCount > 0);
+
+        String whoText = iAmTarget ? "내" : "상대";
+        String sign = gained ? "+" : "-";
+        int abs = Math.abs(deltaCount);
+
+        String msg = whoText + " 풍선 " + sign + abs + "!";
+
+        // 내 입장에서 좋은 효과인지 / 나쁜 효과인지
+        boolean positive;
+        if (iAmTarget) {
+            // 내 풍선: 늘면 좋고 줄면 나쁨
+            positive = gained;
+        } else {
+            // 상대 풍선: 늘면 나쁘고 줄면 좋음
+            positive = !gained;
+        }
+
+        showItemToast(msg, positive);
+    }
+
+
+
+
 
     private void drawItemToast(Graphics2D g2, int w, int h) {
         if (itemToastText == null) return;

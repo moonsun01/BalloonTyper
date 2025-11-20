@@ -34,8 +34,13 @@ public class VersusClient {
         socket.close();
     }
 
-    // 🔥 여기만 수정
     public void sendRetry() {
         out.println("RETRY");   // 그냥 한 줄 보내면 됨
     }
+
+    public void sendToast(String flag, String msg) {
+        // flag: "1" or "0"
+        out.println("TOAST " + flag + " " + msg);
+    }
+
 }
