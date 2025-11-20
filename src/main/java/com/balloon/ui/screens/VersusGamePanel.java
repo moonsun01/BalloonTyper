@@ -280,14 +280,17 @@ public class VersusGamePanel extends JPanel implements Showable {
         String rightLabel;
 
         if ("P1".equals(myRole)) {
-            leftLabel = "p1";
-            rightLabel = "opponent";
+            //내가 P1이면 왼쪽이 내 필드 -> ME
+            leftLabel = "ME";
+            rightLabel = "RIVAL";
         } else if ("P2".equals(myRole)) {
-            leftLabel = "opponent";
-            rightLabel = "p2";
+            //내가 P2이면 오른쪽이 내 필드 -> ME
+            leftLabel = "RIVAL";
+            rightLabel = "ME";
         } else {
-            leftLabel = "player";
-            rightLabel = "opponent";
+            //혹시 ROLE을 못받은 이상한 상황일 때도, 내 기준은 그냥 ME
+            leftLabel = "ME";
+            rightLabel = "RIVAL";
         }
 
         // 왼쪽 이름
@@ -501,7 +504,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         }
 
         p1Name = nameFromSession;
-        p2Name = "opponent";
+        p2Name = "RIVAL";
         repaint();
 
         String host = JOptionPane.showInputDialog(this, "서버 IP를 입력하세요", "127.0.0.1");

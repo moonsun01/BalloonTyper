@@ -19,7 +19,7 @@ public final class ItemRules {
     }
 
     /** 효과 적용 대상 */
-    public enum Target { SELF, OPPONENT, GLOBAL, NONE }
+    public enum Target { SELF, RIVAL, GLOBAL, NONE }
 
     /** UI 스킨에서 쓰는 키 문자열(색 매핑용) */
     public static final class Keys {
@@ -79,8 +79,8 @@ public final class ItemRules {
         switch (ThreadLocalRandom.current().nextInt(4)) { // 0~3
             case 0:  return new Effect(EffectType.BAL_SELF_P3, Target.SELF,     +3, 0, Keys.BAL_SELF_P3);
             case 1:  return new Effect(EffectType.BAL_SELF_M3, Target.SELF,     -3, 0, Keys.BAL_SELF_M3);
-            case 2:  return new Effect(EffectType.BAL_OPP_P3,  Target.OPPONENT, +3, 0, Keys.BAL_OPP_P3);
-            default: return new Effect(EffectType.BAL_OPP_M3,  Target.OPPONENT, -3, 0, Keys.BAL_OPP_M3);
+            case 2:  return new Effect(EffectType.BAL_OPP_P3,  Target.RIVAL, +3, 0, Keys.BAL_OPP_P3);
+            default: return new Effect(EffectType.BAL_OPP_M3,  Target.RIVAL, -3, 0, Keys.BAL_OPP_M3);
         }
     }
 
@@ -89,7 +89,7 @@ public final class ItemRules {
         boolean blind = ThreadLocalRandom.current().nextBoolean();
         int duration = 5;
         return blind
-                ? new Effect(EffectType.TRICK_BLIND,   Target.OPPONENT, 0, duration, Keys.TRICK_BLIND)
-                : new Effect(EffectType.TRICK_REVERSE, Target.OPPONENT, 0, duration, Keys.TRICK_REVERSE);
+                ? new Effect(EffectType.TRICK_BLIND,   Target.RIVAL, 0, duration, Keys.TRICK_BLIND)
+                : new Effect(EffectType.TRICK_REVERSE, Target.RIVAL, 0, duration, Keys.TRICK_REVERSE);
     }
 }
