@@ -54,19 +54,19 @@ public class ItemEffectApplier {
                 }
             }
             case BALLOON_PLUS_2 -> {
-                // 싱글 모드: 내 필드에 풍선 2개 추가 (난이도 ↑, 그래서 부정적인 효과로 볼 수 있음)
+                // 싱글/듀얼 공통: 풍선 +2 → 난이도 증가(부정적)
                 if (fieldApi != null) fieldApi.addBalloons(2);
                 if (uiApi != null) {
                     uiApi.showToast("풍선 +2!");
-                    uiApi.flashEffect(false);   // 풍선이 늘어나서 어렵다 = 나한텐 안 좋은 효과
+                    uiApi.flashEffect(false);
                 }
             }
             case BALLOON_MINUS_2 -> {
-                // 싱글 모드: 내 필드에서 풍선 2개 제거 (난이도 ↓, 좋은 효과)
+                // 싱글/듀얼 공통: 풍선 -2 → 난이도 감소(긍정적)
                 if (fieldApi != null) fieldApi.removeBalloons(2);
                 if (uiApi != null) {
                     uiApi.showToast("풍선 -2!");
-                    uiApi.flashEffect(true);    // 나한테 좋은 효과
+                    uiApi.flashEffect(true);
                 }
             }
 

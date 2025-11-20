@@ -55,9 +55,6 @@ public class VersusGamePanel extends JPanel implements Showable {
                     HUDRenderer.HUD_FONT.getSize2D() + 12.0f
             );
 
-    // 점수
-    private int p1Score = 0;
-    private int p2Score = 0;
 
     // [ADD] 듀얼 인트로 단계 관리
     private enum IntroPhase {
@@ -563,8 +560,11 @@ public class VersusGamePanel extends JPanel implements Showable {
                     }
                     final ResultState finalState = state;
                     SwingUtilities.invokeLater(() -> startResultSequence(finalState));
-                    break;
+
+                    // ★ 여기서 break 하지 않는다!
+                    // 서버가 다음 라운드 START를 다시 보내면, 위의 START 분기에서 또 처리하게 두기
                 }
+
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -606,7 +606,6 @@ public class VersusGamePanel extends JPanel implements Showable {
 
     // 서버에서 POP 수신
     private void onRemotePop(String who, String word) {
-        int scoreDelta = 10;
 
         boolean popped = tryPopBalloonFor(who, word);
         if (!popped) {
@@ -615,16 +614,14 @@ public class VersusGamePanel extends JPanel implements Showable {
 
         if ("P1".equals(who)) {
             if (p1Remaining > 0) p1Remaining--;
-            p1Score += scoreDelta;
         } else if ("P2".equals(who)) {
             if (p2Remaining > 0) p2Remaining--;
-            p2Score += scoreDelta;
         }
 
         if (rules != null) {
             int playerIndex = "P1".equals(who) ? 1 : 2;
             boolean allCleared = (playerIndex == 1) ? (p1Remaining <= 0) : (p2Remaining <= 0);
-            rules.onPop(playerIndex, scoreDelta, allCleared);
+            rules.onPop(playerIndex, 0, allCleared);
         }
 
         repaint();
@@ -632,24 +629,21 @@ public class VersusGamePanel extends JPanel implements Showable {
 
     // 내 필드에서 풍선 하나 터뜨렸을 때(점수, 룰 반영)
     private void removeMyBalloon(String typedWord) {
-        int scoreDelta = 10;
 
         if ("P1".equals(myRole)) {
             if (p1Remaining > 0) {
                 p1Remaining--;
             }
-            p1Score += scoreDelta;
         } else if ("P2".equals(myRole)) {
             if (p2Remaining > 0) {
                 p2Remaining--;
             }
-            p2Score += scoreDelta;
         }
 
         if (rules != null) {
             int playerIndex = "P1".equals(myRole) ? 1 : 2;
             boolean allCleared = myAllCleared();
-            rules.onPop(playerIndex, scoreDelta, allCleared);
+            rules.onPop(playerIndex, 0, allCleared);
         }
 
         repaint();
@@ -983,20 +977,7 @@ public class VersusGamePanel extends JPanel implements Showable {
 
     // HUD (Score만)
     private void drawHud(Graphics2D g2, int w, int h) {
-        g2.setFont(HUDRenderer.HUD_FONT);
-        g2.setColor(Color.BLACK);
 
-        FontMetrics fm = g2.getFontMetrics();
-        int baseY = 70;
-
-        String p1ScoreText = "Score : " + p1Score;
-        int leftX = 18;
-        g2.drawString(p1ScoreText, leftX, baseY);
-
-        String p2ScoreText = "Score : " + p2Score;
-        int rightMargin = 18;
-        int p2X = w - rightMargin - fm.stringWidth(p2ScoreText);
-        g2.drawString(p2ScoreText, p2X, baseY);
     }
 
     // 내가 엔터 쳤을 때
@@ -1247,8 +1228,8 @@ public class VersusGamePanel extends JPanel implements Showable {
                 break;
         }
 
-        int p1ScoreSnapshot = p1Score;
-        int p2ScoreSnapshot = p2Score;
+        int p1ScoreSnapshot = 0;
+        int p2ScoreSnapshot = 0;
         double p1AccSnapshot = 1.0;
         double p2AccSnapshot = 1.0;
         boolean p1ClearedSnapshot = false;
@@ -1280,8 +1261,11 @@ public class VersusGamePanel extends JPanel implements Showable {
         ctx.setVersusSnapshot(snapshot);
 
         finished = true;
+        showRetryOverlay = false;
+
+
+        inputField.setText("");
         inputField.setEnabled(false);
-        inputField.setVisible(false);
 
         // 네트워크 연결 정리(선택)
         if (netClient != null) {
@@ -1290,8 +1274,13 @@ public class VersusGamePanel extends JPanel implements Showable {
             } catch (Exception ignore) {}
         }
 
-        // 듀얼 결과 화면으로 바로 이동
-        router.show(ScreenId.RESULT);
+        javax.swing.Timer t = new javax.swing.Timer(2000, e -> {
+            showRetryOverlay = true;
+            repaint();
+            ((javax.swing.Timer) e.getSource()).stop();
+        });
+        t.setRepeats(false);
+        t.start();
     }
 
     // HOME 클릭
@@ -1314,8 +1303,6 @@ public class VersusGamePanel extends JPanel implements Showable {
         finished = false;
         resultState = ResultState.NONE;
         showRetryOverlay = false;
-        p1Score = 0;
-        p2Score = 0;
 
         p1Remaining = TOTAL_BALLOONS_PER_PLAYER;
         p2Remaining = TOTAL_BALLOONS_PER_PLAYER;
@@ -1326,8 +1313,10 @@ public class VersusGamePanel extends JPanel implements Showable {
         // 룰 초기화
         rules = new VersusGameRules(INITIAL_TIME_SECONDS);
 
+        // 🔽 입력창 다시 활성화 + 포커스 주기
+        inputField.setText("");
         inputField.setEnabled(true);
-        inputField.setVisible(true);
+        inputField.setVisible(true); // 혹시 모르니 true 한 번 명시
         SwingUtilities.invokeLater(() -> inputField.requestFocusInWindow());
 
         repaint();
@@ -1336,4 +1325,5 @@ public class VersusGamePanel extends JPanel implements Showable {
             netClient.sendRetry();
         }
     }
+
 }
