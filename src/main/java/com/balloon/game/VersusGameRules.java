@@ -32,7 +32,7 @@ public class VersusGameRules {
             return (double) typedCorrect / typedTotal;
         }
 
-        // --- 내부에서 사용할 업데이트 메서드들 ---
+        // 내부 업데이트 메서드들
 
         void setInitialTime(int seconds) {
             this.timeLeft = Math.max(0, seconds);
@@ -68,6 +68,12 @@ public class VersusGameRules {
     private final PlayerState p1 = new PlayerState();
     private final PlayerState p2 = new PlayerState();
     private Winner winner = Winner.NONE;
+
+    // 블라인드/리버스 상태 (밀리초 기준)
+    private long p1BlindUntilMs   = 0L;
+    private long p2BlindUntilMs   = 0L;
+    private long p1ReverseUntilMs = 0L;
+    private long p2ReverseUntilMs = 0L;
 
     // 생성 시 각 플레이어의 시작 시간 설정
     public VersusGameRules(int initialTimeSeconds) {
@@ -116,6 +122,54 @@ public class VersusGameRules {
         PlayerState self = (playerIndex == 1) ? p1 : p2;
         if (isFinished() || self.isDead()) return;
         self.onMissType();
+    }
+
+    // ================== 블라인드 / 리버스 관련 API ==================
+
+    // 공격자(attackerRole)가 BLIND 아이템 사용 → 상대에게 durationSec 동안 블라인드
+    public void applyBlindToOpponent(String attackerRole, int durationSec) {
+        long until = System.currentTimeMillis() + durationSec * 1000L;
+        if ("P1".equals(attackerRole)) {
+            p2BlindUntilMs = Math.max(p2BlindUntilMs, until);
+        } else if ("P2".equals(attackerRole)) {
+            p1BlindUntilMs = Math.max(p1BlindUntilMs, until);
+        }
+    }
+
+    // 공격자(attackerRole)가 REVERSE 아이템 사용 → 상대에게 durationSec 동안 리버스
+    public void applyReverseToOpponent(String attackerRole, int durationSec) {
+        long until = System.currentTimeMillis() + durationSec * 1000L;
+        if ("P1".equals(attackerRole)) {
+            p2ReverseUntilMs = Math.max(p2ReverseUntilMs, until);
+        } else if ("P2".equals(attackerRole)) {
+            p1ReverseUntilMs = Math.max(p1ReverseUntilMs, until);
+        }
+    }
+
+    // role("P1"/"P2") 기준으로 블라인드 남은 시간(초)
+    public int getBlindRemainingSecondsFor(String role) {
+        long now = System.currentTimeMillis();
+        long until;
+        if ("P1".equals(role)) {
+            until = p1BlindUntilMs;
+        } else {
+            until = p2BlindUntilMs;
+        }
+        long diff = until - now;
+        if (diff <= 0) return 0;
+        return (int) Math.ceil(diff / 1000.0);
+    }
+
+    // role("P1"/"P2") 기준으로 리버스 활성 여부
+    public boolean isReverseActiveFor(String role) {
+        long now = System.currentTimeMillis();
+        long until;
+        if ("P1".equals(role)) {
+            until = p1ReverseUntilMs;
+        } else {
+            until = p2ReverseUntilMs;
+        }
+        return now < until;
     }
 
     // 승패 판정

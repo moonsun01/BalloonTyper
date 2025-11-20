@@ -18,24 +18,34 @@ public class VersusClient {
         out.println("JOIN " + nickname);
     }
 
+    // 풍선 POP 전송
     public void sendPop(String word) {
         out.println("POP " + word);
     }
 
+    // 라운드 종료 전송
     public void sendFinish() {
         out.println("FINISH");
     }
 
+    // 서버에서 한 줄 메시지 받기
     public String readLine() throws IOException {
         return in.readLine();
     }
 
+    // 소켓 닫기
     public void close() throws IOException {
         socket.close();
     }
 
-    // 🔥 여기만 수정
+    // 라운드 재시작 요청
     public void sendRetry() {
-        out.println("RETRY");   // 그냥 한 줄 보내면 됨
+        out.println("RETRY");
     }
+
+    // 🔥 BLIND 아이템 사용 전송 (ROLE 포함)
+    public void sendBlind() {
+        out.println("BLIND");  // 예: "BLIND P1"
+    }
+
 }
