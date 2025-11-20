@@ -65,7 +65,7 @@ public class VersusServer {
                 broadcast(p1, p2, "START");
                 System.out.println("[SERVER] === NEW ROUND START ===");
 
-                // 라운드 상태
+                // 5) 라운드 메인 루프: POP / FINISH / BLIND 처리
                 Set<String> poppedWords = new HashSet<>();
                 boolean finished = false;
                 String winnerRole = null;
@@ -90,12 +90,16 @@ public class VersusServer {
                             if (poppedWords.add(word)) {
                                 broadcast(p1, p2, "POP P1 " + word);
                             }
+
+                        } else if (line.equals("FINISH")) {
+
                         }
                         // ★ 추가: REVERSE 메시지는 그대로 양쪽에 전달만 한다
                         else if (line.startsWith("REVERSE ")) {
                             // line 예시: "REVERSE P2 5000"
                             broadcast(p1, p2, line);
                         }else if (line.equals("FINISH")) {
+
                             if (!finished) {
                                 winnerRole = "P1";
                             } else if ("P2".equals(winnerRole)) {
@@ -103,13 +107,23 @@ public class VersusServer {
                                 winnerRole = "DRAW";
                             }
                             finished = true;
+
+
+                        } else if (line.equals("BLIND")) {
+                            // 🔥 P1이 BLIND 아이템 사용
+                            // → 두 클라이언트에 "BLIND P1" 전송
+                            broadcast(p1, p2, "BLIND P1");
+
+
                         } else if (line.equals("EXIT")) {
                             keepPlaying = false;
                             finished = true;
                             winnerRole = null;
                             break;
+
                         } else if (line.startsWith("TOAST")) {
                             broadcast(p1, p2, line);
+
                         }
                     }
 
@@ -130,24 +144,39 @@ public class VersusServer {
                             if (poppedWords.add(word)) {
                                 broadcast(p1, p2, "POP P2 " + word);
                             }
+
+
+                        } else if (line.equals("FINISH")) {
+
                         }
                         // ★ 여기에도 REVERSE 분기 추가
                         else if (line.startsWith("REVERSE ")) {
                             broadcast(p1, p2, line);
                         }else if (line.equals("FINISH")) {
+
                             if (!finished) {
                                 winnerRole = "P2";
                             } else if ("P1".equals(winnerRole)) {
                                 winnerRole = "DRAW";
                             }
                             finished = true;
+
+
+                        } else if (line.equals("BLIND")) {
+                            //  P2가 BLIND 아이템 사용
+                            // → 두 클라이언트에 "BLIND P2" 전송
+                            broadcast(p1, p2, "BLIND P2");
+
+
                         } else if (line.equals("EXIT")) {
                             keepPlaying = false;
                             finished = true;
                             winnerRole = null;
                             break;
+
                         } else if (line.startsWith("TOAST")) {
                             broadcast(p1, p2, line);
+
                         }
                     }
 

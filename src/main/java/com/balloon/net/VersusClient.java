@@ -65,4 +65,8 @@ public class VersusClient {
         out.println("REVERSE " + targetRole + " " + durationMillis);
     }
 
+    //  BLIND 아이템 사용 전송 (ROLE 포함)
+    public void sendBlind() {
+        out.println("BLIND");  // 예: "BLIND P1"
+    }
 }

@@ -97,6 +97,7 @@ public class VersusGamePanel extends JPanel implements Showable {
 
     // 랜덤 (풍선 색, 아이템)
     private final Random rnd = new Random();
+    private final Map<Balloon, Image> balloonImages = new HashMap<>();
 
     // 아이템 적용기
     private ItemEffectApplier itemApplier;
@@ -140,6 +141,12 @@ public class VersusGamePanel extends JPanel implements Showable {
 
     // 풍선 구조 3·4·5·6·5·4·3
     private static final int[] ROW_STRUCTURE = {3, 4, 5, 6, 5, 4, 3};
+
+    // BLIND 상태(반쪽 가리기용)
+    private boolean blindP1 = false;
+    private boolean blindP2 = false;
+    private long    blindEndP1 = 0L;
+    private long    blindEndP2 = 0L;
 
     public VersusGamePanel(ScreenRouter router) {
         this.router = router;
@@ -481,20 +488,31 @@ public class VersusGamePanel extends JPanel implements Showable {
                 // 아이템에 따라 텍스트 색 결정
                 Color textColor = Color.BLACK;
                 Item item = itemBalloons.get(b);
-                if (item != null) {
+                if (item != null && item.getKind() != null) {
                     switch (item.getKind()) {
-                        case BALLOON_PLUS_2, BALLOON_MINUS_2,
-                             SELF_BALLOON_PLUS_2, SELF_BALLOON_MINUS_2 -> {
-                            // 풍선 아이템: 파란 글씨
+
+                        // 파란 글씨: 풍선 아이템(±2)
+                        case BALLOON_PLUS_2:
+                        case BALLOON_MINUS_2:
+                        case SELF_BALLOON_PLUS_2:
+                        case SELF_BALLOON_MINUS_2:
                             textColor = new Color(120, 160, 255);
-                        }
-                        case REVERSE_5S -> {
-                            // 트릭 아이템: 초록 글씨
+                            break;
+
+                        // 초록 글씨: 트릭 아이템 (BLIND / REVERSE)
+                        case BLIND:
+                        case REVERSE_5S:
                             textColor = new Color(0, 180, 0);
-                        }
-                        default -> textColor = Color.BLACK;
+                            break;
+
+                        // 그 외
+                        default:
+                            textColor = Color.BLACK;
+                            break;
                     }
                 }
+
+
                 g2.setColor(textColor);
                 g2.drawString(text, tx, ty);
             }
@@ -598,7 +616,15 @@ public class VersusGamePanel extends JPanel implements Showable {
                         String word = parts[2];
                         SwingUtilities.invokeLater(() -> onRemotePop(who, word));
                     }
-                } else if (msg.startsWith("RESULT")) {
+                }
+                else if (msg.startsWith("BLIND ")) {
+                    // 서버에서 "BLIND P1" 또는 "BLIND P2" 형식으로 옴
+                    String attacker = msg.substring(6).trim(); // P1 / P2 (아이템 사용한 사람)
+                    final String targetRole = "P1".equals(attacker) ? "P2" : "P1";
+
+                    SwingUtilities.invokeLater(() -> startBlindFor(targetRole));
+                }
+                else if (msg.startsWith("RESULT")) {
                     String[] parts = msg.split(" ");
                     String keyword = (parts.length >= 2) ? parts[1].trim() : "";
 
@@ -628,22 +654,21 @@ public class VersusGamePanel extends JPanel implements Showable {
                     }
                 }
                 else if (msg.startsWith("REVERSE ")) {
-                    // 포맷: REVERSE <아이템을 사용한(공격자) 역할> <지속ms>
+                    // 포맷: REVERSE <시전자역할> <지속ms>
+                    // 예: REVERSE P1 5000  (P1이 사용 → P2가 거꾸로 입력)
                     String[] parts = msg.split(" ");
                     if (parts.length >= 3) {
-                        // 서버에서 온 건 "누가 REVERSE를 썼는지" (공격자) 라고 해석
-                        final String casterRole = parts[1].trim();  // 기존 targetRole 이름만 바꿔줌
+                        final String casterRole = parts[1].trim();   // "P1" 또는 "P2"
                         final long duration = Long.parseLong(parts[2]);
 
-                        // 공격자 인덱스 (0 = P1, 1 = P2)
+                        // 시전자 인덱스 (0 = P1, 1 = P2)
                         final int casterIndex = "P1".equals(casterRole) ? 0 : 1;
-
-                        // 진짜 피해를 받을 타겟 인덱스는 "상대방"
+                        // 실제로 reverse 걸리는 타겟 인덱스는 상대방
                         final int targetIndex = (casterIndex == 0) ? 1 : 0;
 
                         SwingUtilities.invokeLater(() -> {
 
-                            // 0) 혹시 남아 있던 reverse 상태 초기화
+                            // 0) 기존 reverse 상태 초기화
                             for (int i = 0; i < 2; i++) {
                                 reverseActive[i] = false;
                                 reverseRemainSeconds[i] = 0;
@@ -662,14 +687,12 @@ public class VersusGamePanel extends JPanel implements Showable {
                                 iAmTarget = false;
                             }
 
-                            // 3) 그에 맞는 문구 보여주기
+                            // 3) 안내 문구 띄우기
                             showReverseMessage(iAmTarget);
                             repaint();
                         });
                     }
                 }
-
-
 
 
             }
@@ -820,6 +843,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         itemBalloons.remove(b);
 
         ItemKind kind = item.getKind();
+        if (kind == null) return;
 
         String owner;
         if (p1Balloons.contains(b)) {
@@ -858,7 +882,11 @@ public class VersusGamePanel extends JPanel implements Showable {
                 showBalloonChangeToast(owner, -2);
             }
 
-            // REVERSE_5S 같이 FieldApi/네트워크가 필요한 애들은 ItemEffectApplier에 맡기기
+            case BLIND -> {
+                // 듀얼 BLIND
+                handleBlindItem();
+            }
+
             case REVERSE_5S -> {
                 if (itemApplier != null) {
                     itemApplier.apply(item);
@@ -927,10 +955,10 @@ public class VersusGamePanel extends JPanel implements Showable {
         int centerRight = w * 3 / 4;
         double balloonAnchorY = h - 260;
 
-        java.util.List<Point> leftPos  = buildBalloonPositions(centerLeft,  balloonAnchorY);
+        java.util.List<Point> leftPos = buildBalloonPositions(centerLeft, balloonAnchorY);
         java.util.List<Point> rightPos = buildBalloonPositions(centerRight, balloonAnchorY);
 
-        int leftCount  = Math.min(TOTAL_BALLOONS_PER_PLAYER, leftPos.size());
+        int leftCount = Math.min(TOTAL_BALLOONS_PER_PLAYER, leftPos.size());
         int rightCount = Math.min(TOTAL_BALLOONS_PER_PLAYER, rightPos.size());
 
         // ★ 두 클라이언트가 완전히 같은 배치를 갖도록 고정 seed 사용
@@ -958,10 +986,11 @@ public class VersusGamePanel extends JPanel implements Showable {
                     word,
                     p.x,
                     p.y,
-                    kind
+                    randomKind()
             );
             p1Balloons.add(b);
-            // ★ 여기서는 아이템 안 붙임
+            assignRandomImageToBalloon(b);
+            attachRandomItemToBalloon("P1", b);
         }
 
         // ----- P2 풍선 -----
@@ -983,6 +1012,8 @@ public class VersusGamePanel extends JPanel implements Showable {
                     kind
             );
             p2Balloons.add(b);
+            assignRandomImageToBalloon(b);
+            attachRandomItemToBalloon("P2", b);
             // ★ 여기서도 아이템 안 붙임
         }
 
@@ -1121,24 +1152,27 @@ public class VersusGamePanel extends JPanel implements Showable {
         double chance = 0.2; // 20% 확률로만 아이템 풍선
         if (rnd.nextDouble() > chance) {
             b.setCategory(ItemCategory.NONE);
-            b.setAttachedItem(null);      // 혹시 남아있던 거 초기화
-            itemBalloons.remove(b);       // 맵에서도 제거
+            b.setAttachedItem(null);
+            itemBalloons.remove(b);
             return;
         }
 
         ItemKind kind;
         ItemCategory category;
 
-        // 0: +2, 1: -2, 2: REVERSE_5S
-        int r = rnd.nextInt(3);
+        // 0: +2, 1: -2, 2: REVERSE_5S 3:blind
+        int r = rnd.nextInt(4);
         if (r == 0) {
             kind = ItemKind.BALLOON_PLUS_2;
             category = ItemCategory.BALLOON;
         } else if (r == 1) {
             kind = ItemKind.BALLOON_MINUS_2;
             category = ItemCategory.BALLOON;
-        } else {
-            kind = ItemKind.REVERSE_5S;
+        } else if (r ==2 ){
+            kind = ItemKind.REVERSE_5S;      // 또는 BLIND로 바꾸고 싶으면 여기 수정
+            category = ItemCategory.TRICK;
+        }else {
+            kind = ItemKind.BLIND;         // 화면 블라인드 아이템
             category = ItemCategory.TRICK;
         }
 
@@ -1146,9 +1180,10 @@ public class VersusGamePanel extends JPanel implements Showable {
 
         b.setCategory(category);
         b.setAttachedItem(item);
-        itemBalloons.put(b, item); // 텍스트 색칠용
+        itemBalloons.put(b, item);
 
-        System.out.println("[ITEM] attach " + kind + " to " + owner + " word=" + b.getWord());
+        System.out.println("[ITEM] attach " + kind + " to " + owner +
+                " word=" + b.getWord());
     }
 
     // who 쪽에 풍선 n개 랜덤 추가
@@ -1193,6 +1228,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     randomKind()
             );
             list.add(b);
+            assignRandomImageToBalloon(b);
             attachRandomItemToBalloon(who, b);
 
             if ("P1".equals(who)) {
@@ -1242,7 +1278,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         @Override
         public void removeBalloons(int n) {
             for (int i = 0; i < n; i++) {
-                removeRandomBalloonFrom(myRole); // 내 풍선 -1씩 n번
+                removeRandomBalloonFrom(myRole); // 내 풍선 -n
             }
         }
 
@@ -1284,9 +1320,17 @@ public class VersusGamePanel extends JPanel implements Showable {
                 String line;
                 while ((line = br.readLine()) != null) {
                     line = line.trim();
-                    if (!line.isEmpty()) {
-                        result.add(line);
+                    // 완전 빈 줄은 건너뛰기
+                    if (line.isEmpty()) continue;
+
+                    // UTF-8 BOM(﻿) 있으면 제거
+                    if (line.charAt(0) == '\uFEFF') {
+                        line = line.substring(1);
+                        // 다시 한 번 비어 있나 체크
+                        if (line.isEmpty()) continue;
                     }
+
+                    result.add(line);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -1331,14 +1375,12 @@ public class VersusGamePanel extends JPanel implements Showable {
         typedWord = typedWord.trim();
         if (typedWord.isEmpty()) return;
 
-        // reverse 상태라면, 사용자가 거꾸로 입력한 걸
-        // 다시 뒤집어서 "원래 단어"로 되돌린다.
+        // reverse 상태라면, 사용자가 거꾸로 입력한 걸 다시 뒤집어서 원래 단어로
         String effectiveWord = typedWord;
         if (isReverseActiveForMe()) {
             effectiveWord = new StringBuilder(typedWord).reverse().toString();
         }
 
-        // 내 풍선 리스트에서 effectiveWord를 찾는다
         boolean popped = tryPopMyBalloon(effectiveWord);
 
         if (!popped) {
@@ -1352,12 +1394,10 @@ public class VersusGamePanel extends JPanel implements Showable {
         // 남은 개수/점수 처리도 같은 단어 기준으로
         removeMyBalloon(effectiveWord);
 
-        // 서버에도 같은 단어(effectiveWord) 전송
         if (netClient != null) {
             netClient.sendPop(effectiveWord);
         }
 
-        // 올클리어 체크
         if (myAllCleared() && !finished) {
             finished = true;
             if (netClient != null) {
@@ -1365,7 +1405,6 @@ public class VersusGamePanel extends JPanel implements Showable {
             }
         }
     }
-
 
     // 듀얼 인트로(미션 안내 + START!) 표시
     private void drawStartMessage(Graphics2D g2, int w, int h) {
@@ -1556,6 +1595,113 @@ public class VersusGamePanel extends JPanel implements Showable {
         g2.setFont(oldFont);
     }
 
+    // ================= BLIND ==================
+
+    // BLIND 아이템을 먹었을 때 서버에 알림
+    private void handleBlindItem() {
+        // 네트워크 클라이언트나 내 ROLE 이 없으면 그냥 무시
+        if (netClient == null || myRole == null) {
+            return;
+        }
+        // 서버에 "BLIND P1" 또는 "BLIND P2" 전송
+        netClient.sendBlind();
+    }
+
+    // 특정 ROLE 보드를 3초 동안 가리기(P1 또는 P2)
+    private void startBlindFor(String role) {
+        if (role == null) return;
+
+        long now  = System.currentTimeMillis();
+        long until = now + 3000L; // 3초
+
+        if ("P1".equals(role)) {
+            blindP1 = true;
+            blindEndP1 = until;
+        }
+        if ("P2".equals(role)) {
+            blindP2 = true;
+            blindEndP2 = until;
+        }
+
+        repaint();
+
+        // 0.1초마다 확인해서 자동 해제
+        javax.swing.Timer t = new javax.swing.Timer(100, e -> {
+            long now2 = System.currentTimeMillis();
+            boolean changed = false;
+
+            if (blindP1 && now2 >= blindEndP1) {
+                blindP1 = false;
+                changed = true;
+            }
+            if (blindP2 && now2 >= blindEndP2) {
+                blindP2 = false;
+                changed = true;
+            }
+
+            if (changed) {
+                repaint();
+            }
+
+            if (!blindP1 && !blindP2) {
+                ((javax.swing.Timer) e.getSource()).stop();
+            }
+        });
+        t.setRepeats(true);
+        t.start();
+    }
+
+    // 반쪽만 그리는 오버레이
+    private void drawBlindHalf(Graphics2D g2, int x, int y, int width, int height) {
+        Composite oldComp = g2.getComposite();
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f));
+
+        g2.setColor(new Color(0, 0, 0)); // 완전 검정
+        g2.fillRect(x, y, width, height);
+
+        g2.setComposite(oldComp);
+
+        // 중앙 텍스트
+        String text = "블라인드!";
+        Font oldFont = g2.getFont();
+        Font f = NAME_FONT.deriveFont(NAME_FONT.getSize2D() + 6.0f);
+        g2.setFont(f);
+        FontMetrics fm = g2.getFontMetrics();
+
+        int textW = fm.stringWidth(text);
+        int tx = x + (width - textW) / 2;
+        int ty = y + height / 2;
+
+        g2.setColor(new Color(255, 160, 160));
+        g2.drawString(text, tx, ty);
+
+        g2.setFont(oldFont);
+    }
+
+    // P1 / P2 반쪽만 가리는 블라인드 오버레이
+    private void drawBlindOverlay(Graphics2D g2, int w, int h) {
+        long now = System.currentTimeMillis();
+        int half = w / 2;
+
+        if (blindP1) {
+            if (now > blindEndP1) {
+                blindP1 = false;
+            } else {
+                drawBlindHalf(g2, 0, 0, half, h);
+            }
+        }
+
+        if (blindP2) {
+            if (now > blindEndP2) {
+                blindP2 = false;
+            } else {
+                drawBlindHalf(g2, half, 0, half, h);
+            }
+        }
+    }
+
+    // ================= RESULT =================
+
     // 결과 오버레이
     private void drawResultOverlay(Graphics2D g2, int w, int h) {
         if (resultState == ResultState.NONE) return;
@@ -1706,6 +1852,10 @@ public class VersusGamePanel extends JPanel implements Showable {
         // 듀얼 시작 안내 문구
         drawStartMessage(g2, w, h);
 
+        // 아이템 토스트
+        drawItemToast(g2, w, h);
+        // BLIND 반쪽 오버레이
+        drawBlindOverlay(g2, w, h);
         // reverse 중앙 오버레이
         drawCenterReverseOverlay(g2, w, h);
 
@@ -1800,6 +1950,26 @@ public class VersusGamePanel extends JPanel implements Showable {
         showRetryOverlay = false;
 
         router.show(ScreenId.START);
+    }
+
+    // 풍선마다 랜덤 색 PNG 하나 골라서 매핑해 두는 헬퍼
+    private void assignRandomImageToBalloon(Balloon b) {
+        if (b == null) return;
+
+        // 사용할 풍선 이미지 목록
+        Image[] imgs = {
+                balloonGreen,
+                balloonOrange,
+                balloonPink,
+                balloonPurple,
+                balloonYellow
+        };
+
+        // 랜덤으로 하나 선택
+        Image img = imgs[rnd.nextInt(imgs.length)];
+
+        // 이 풍선에 어떤 이미지를 쓸지 저장
+        balloonImages.put(b, img);
     }
 
     // RETRY 클릭
