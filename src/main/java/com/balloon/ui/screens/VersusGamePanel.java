@@ -85,6 +85,7 @@ public class VersusGamePanel extends JPanel implements Showable {
 
     // 랜덤 (풍선 색, 아이템)
     private final Random rnd = new Random();
+    private final Map<Balloon, Image> balloonImages = new HashMap<>();
 
     // 아이템 적용기
     private ItemEffectApplier itemApplier;
@@ -381,6 +382,37 @@ public class VersusGamePanel extends JPanel implements Showable {
         }
     }
 
+    // 풍선 객체 기준으로 이미지 가져오기 (없으면 Kind 기반 기본 매핑)
+    private Image imageForBalloon(Balloon b) {
+        if (b == null) return balloonGreen;
+
+        Image img = balloonImages.get(b);
+        if (img != null) {
+            return img;
+        }
+
+        // 혹시 맵에 없으면 예전 로직대로 Kind로 처리
+        return imageForKind(b.getKind());
+    }
+
+
+    // 풍선 하나에 5가지 색 중 하나를 랜덤으로 붙여놓기
+    private void assignRandomImageToBalloon(Balloon b) {
+        if (b == null) return;
+
+        int r = rnd.nextInt(5); // 0~4
+        Image img;
+        switch (r) {
+            case 0 -> img = balloonGreen;
+            case 1 -> img = balloonOrange;
+            case 2 -> img = balloonPink;
+            case 3 -> img = balloonPurple;
+            default -> img = balloonYellow;
+        }
+        balloonImages.put(b, img);
+    }
+
+
     // 풍선 색상을 랜덤으로 선택 (RED / GREEN / BLUE)
     private Balloon.Kind randomKind() {
         Balloon.Kind[] kinds = {
@@ -454,7 +486,7 @@ public class VersusGamePanel extends JPanel implements Showable {
             int bx = Math.round(b.getX());
             int by = Math.round(b.getY());
 
-            Image img = imageForKind(b.getKind());
+            Image img = imageForBalloon(b);
             g2.drawImage(img, bx, by, balloonSize, balloonSize, null);
 
             String text = b.getText();
@@ -907,6 +939,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     randomKind()
             );
             p1Balloons.add(b);
+            assignRandomImageToBalloon(b);
             attachRandomItemToBalloon("P1", b);
         }
 
@@ -927,6 +960,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     randomKind()
             );
             p2Balloons.add(b);
+            assignRandomImageToBalloon(b);
             attachRandomItemToBalloon("P2", b);
         }
 
@@ -1013,6 +1047,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     randomKind()
             );
             list.add(b);
+            assignRandomImageToBalloon(b);
             attachRandomItemToBalloon(who, b);
 
             if ("P1".equals(who)) {
@@ -1081,7 +1116,7 @@ public class VersusGamePanel extends JPanel implements Showable {
     /**
      * 리소스(예: /data/words.csv)에서 단어를 읽는다.
      * primaryPath가 없으면 fallbackPath 시도.
-     * 둘 다 실패하면 defaultPrefix-번호 형식으로 더미 단어 만든다.
+     * 둘 다 실패하면 defaultPrefix-번호 형식으로 더미 단어를 만든다.
      */
     private java.util.List<String> loadWordsFromResource(
             String primaryPath,
@@ -1091,28 +1126,41 @@ public class VersusGamePanel extends JPanel implements Showable {
         java.util.List<String> result = new ArrayList<>();
         String usedPath = primaryPath;
 
+        // 1. 우선 primaryPath 시도
         InputStream in = getClass().getResourceAsStream(primaryPath);
+        // 2. 실패하면 fallbackPath 시도
         if (in == null && fallbackPath != null) {
             usedPath = fallbackPath;
             in = getClass().getResourceAsStream(fallbackPath);
         }
 
+        // 3. 실제로 파일을 찾았을 때만 읽기
         if (in != null) {
             try (BufferedReader br = new BufferedReader(
                     new InputStreamReader(in, StandardCharsets.UTF_8))) {
 
                 String line;
                 while ((line = br.readLine()) != null) {
+                    // 양끝 공백 제거
                     line = line.trim();
-                    if (!line.isEmpty()) {
-                        result.add(line);
+                    // 완전 빈 줄은 건너뛰기
+                    if (line.isEmpty()) continue;
+
+                    // UTF-8 BOM(﻿) 있으면 제거
+                    if (line.charAt(0) == '\uFEFF') {
+                        line = line.substring(1);
+                        // 다시 한 번 비어 있나 체크
+                        if (line.isEmpty()) continue;
                     }
+
+                    result.add(line);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
 
+        // 4. 아무 단어도 못 읽었으면 WORD-1 ~ WORD-n 더미 생성
         if (result.isEmpty()) {
             if (defaultPrefix == null) defaultPrefix = "WORD";
             for (int i = 1; i <= TOTAL_BALLOONS_PER_PLAYER; i++) {
@@ -1125,6 +1173,7 @@ public class VersusGamePanel extends JPanel implements Showable {
 
         return result;
     }
+
 
     // 단일 path용 간단 오버로드
     private java.util.List<String> loadWordsFromResource(String path) {
@@ -1151,7 +1200,6 @@ public class VersusGamePanel extends JPanel implements Showable {
         typedWord = typedWord.trim();
         if (typedWord.isEmpty()) return;
 
-        // reverse 상태라면, 사용자가 거꾸로 입력한 걸 다시 뒤집어서 원래 단어로
         String effectiveWord = typedWord;
         if (isReverseActiveForMe()) {
             effectiveWord = new StringBuilder(typedWord).reverse().toString();
@@ -1167,10 +1215,12 @@ public class VersusGamePanel extends JPanel implements Showable {
             return;
         }
 
-        removeMyBalloon(typedWord);
+        // 남은 개수 갱신은 단어 안 써서 사실 상관 없지만, 의미상 effectiveWord로 맞춰주기
+        removeMyBalloon(effectiveWord);
 
+        // 서버에도 "실제로 터진 단어"를 보내야 한다
         if (netClient != null) {
-            netClient.sendPop(typedWord);
+            netClient.sendPop(effectiveWord);
         }
 
         if (myAllCleared() && !finished) {
@@ -1180,6 +1230,7 @@ public class VersusGamePanel extends JPanel implements Showable {
             }
         }
     }
+
 
     // 듀얼 인트로(미션 안내 + START!) 표시
     private void drawStartMessage(Graphics2D g2, int w, int h) {
