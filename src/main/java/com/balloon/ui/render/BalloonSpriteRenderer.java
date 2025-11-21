@@ -2,11 +2,20 @@ package com.balloon.ui.render;
 
 import com.balloon.game.model.BalloonSprite;
 import com.balloon.ui.skin.SecretItemSkin;
+import com.balloon.ui.hud.HUDRenderer;
 
 import java.awt.*;
 import java.awt.geom.QuadCurve2D;
 
 public class BalloonSpriteRenderer {
+
+
+    // 듀얼 모드에서 쓰는 HUD 폰트를 풍선 텍스트 기본 폰트로 사용
+    private static final Font BALLOON_BASE_FONT =
+            HUDRenderer.HUD_FONT != null
+                    ? HUDRenderer.HUD_FONT
+                    : new Font("Dialog", Font.BOLD, 18);
+
 
     public void render(Graphics2D g2, BalloonSprite b) {
         if (b.state == BalloonSprite.State.DEAD) return;
@@ -32,7 +41,10 @@ public class BalloonSpriteRenderer {
         Font oldFont = g2.getFont();
         // 풍선 크기에 비례(가독 범위 제한)
         float px = Math.max(12f, Math.min((float)(b.w * 0.28), 28f));
-        g2.setFont(oldFont.deriveFont(Font.PLAIN, px));
+        //g2.setFont(oldFont.deriveFont(Font.PLAIN, px));
+// ★ 듀얼 HUD 폰트를 기반으로 사이즈만 조정
+        Font balloonFont = BALLOON_BASE_FONT.deriveFont(Font.PLAIN, px);
+        g2.setFont(balloonFont);
 
         String text = (b.text != null) ? b.text : "";
         FontMetrics fm = g2.getFontMetrics();
@@ -65,7 +77,8 @@ public class BalloonSpriteRenderer {
 
         Font oldFont = g2.getFont();
         float px = Math.max(12f, Math.min((float)(b.w * 0.30), 30f)); // 풍선 크기 비례
-        g2.setFont(oldFont.deriveFont(Font.PLAIN, px));
+        Font balloonFont = BALLOON_BASE_FONT.deriveFont(Font.PLAIN, px);
+        g2.setFont(balloonFont);
 
         String text = (b.text != null) ? b.text : "";
         FontMetrics fm = g2.getFontMetrics();

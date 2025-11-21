@@ -223,23 +223,23 @@ public class GamePanel extends JPanel implements Showable {
         JPanel topBar = new JPanel(new BorderLayout());
         topBar.setOpaque(false);
 
-        JPanel hud = new JPanel(new BorderLayout());
-        hud.setOpaque(false);
+//        JPanel hud = new JPanel(new BorderLayout());
+//        hud.setOpaque(false);
+//
+//        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
+//        left.setOpaque(false);
+//
+//        timeLabel.setForeground(Color.WHITE);
+//        scoreLabel.setForeground(Color.WHITE);
+//        playerLabel.setForeground(Color.WHITE);
+//        modeLabel.setForeground(Color.WHITE);
 
-        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
-        left.setOpaque(false);
-
-        timeLabel.setForeground(Color.WHITE);
-        scoreLabel.setForeground(Color.WHITE);
-        playerLabel.setForeground(Color.WHITE);
-        modeLabel.setForeground(Color.WHITE);
-
-        left.add(timeLabel);
-        left.add(scoreLabel);
-        left.add(new JLabel(" | "));
-        left.add(playerLabel);
-        left.add(modeLabel);
-        hud.add(left, BorderLayout.WEST);
+//        left.add(timeLabel);
+//        left.add(scoreLabel);
+//        left.add(new JLabel(" | "));
+//        left.add(playerLabel);
+//        left.add(modeLabel);
+//        hud.add(left, BorderLayout.WEST);
 
         JPanel legend = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 8));
         legend.setOpaque(false);
@@ -260,7 +260,7 @@ public class GamePanel extends JPanel implements Showable {
         legend.add(timeBadge);
         legend.add(balloonBadge);
 
-        topBar.add(hud, BorderLayout.CENTER);
+        //topBar.add(hud, BorderLayout.CENTER);
         topBar.add(legend, BorderLayout.EAST);
 
         add(topBar, BorderLayout.NORTH);
@@ -321,12 +321,14 @@ public class GamePanel extends JPanel implements Showable {
         inputRow.setMaximumSize(rowSize);
         inputRow.setMinimumSize(rowSize);
 
-        inputField.setFont(inputField.getFont().deriveFont(Font.PLAIN, 16f));
+        inputField.setFont(inputField.getFont().deriveFont(Font.PLAIN, 24f));
         inputField.setBackground(Color.WHITE);
         inputField.setForeground(Color.BLACK);
         inputField.setCaretColor(Color.BLACK);
         inputField.setBorder(BorderFactory.createLineBorder(Color.BLACK, 3));
         inputRow.add(inputField, BorderLayout.CENTER);
+
+        inputField.setHorizontalAlignment(JTextField.CENTER);
 
         inputBar.add(inputRow);
         inputBar.add(Box.createHorizontalGlue());
