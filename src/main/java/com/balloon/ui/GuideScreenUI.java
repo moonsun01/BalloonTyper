@@ -6,6 +6,7 @@ import com.balloon.core.ScreenRouter;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.util.Objects;
 
 /**
  * GUIDE 화면: 배경 이미지를 꽉 채워 그리고,
@@ -14,11 +15,9 @@ import java.awt.*;
 public class GuideScreenUI extends JPanel {
 
     private final Image bg;
-    private final ScreenRouter router;
 
     public GuideScreenUI(ScreenRouter router) {
-        this.router = router;
-        this.bg = new ImageIcon(getClass().getResource("/images/GUIDE.png")).getImage();
+        this.bg = new ImageIcon(Objects.requireNonNull(getClass().getResource("/images/GUIDE.png"))).getImage();
 
         setLayout(null);
         setPreferredSize(new Dimension(1280, 720));
@@ -29,7 +28,7 @@ public class GuideScreenUI extends JPanel {
         // ★ 좌표는 1280x720 기준 대략값. 필요하면 x,y,w,h 숫자만 미세 조정.
         back.setBounds(28, 24, 160, 80);
         // 텍스트가 비치지 않도록 여백/색 최소화
-        back.setBorder(new EmptyBorder(0,0,0,0));
+        back.setBorder(new EmptyBorder(0, 0, 0, 0));
         add(back);
 
         back.addActionListener(e -> router.show(ScreenId.START));
@@ -47,7 +46,7 @@ public class GuideScreenUI extends JPanel {
         b.setBorderPainted(false);
         b.setFocusPainted(false);
         b.setOpaque(false);
-        b.setForeground(new Color(0,0,0,0)); // 텍스트도 보이지 않게
+        b.setForeground(new Color(0, 0, 0, 0)); // 텍스트도 보이지 않게
         b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
     }
 }
