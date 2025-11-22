@@ -18,12 +18,9 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumnModel;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
-import java.awt.Adjustable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -75,12 +72,7 @@ public class RankingScreenUI extends JPanel implements Showable {
         JButton back = new JButton("BACK");
         styleTransparent(back);
         back.setBounds(30, 15, 200, 80);
-        back.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                router.show(ScreenId.START);
-            }
-        });
+        back.addActionListener(e -> router.show(ScreenId.START));
         top.add(back);
 
         add(top, BorderLayout.NORTH);
@@ -116,9 +108,7 @@ public class RankingScreenUI extends JPanel implements Showable {
         final Font baseFont;
         Font tmp = table.getFont();
         try {
-            if (HUDRenderer.HUD_FONT != null) {
-                tmp = HUDRenderer.HUD_FONT.deriveFont(22f);
-            }
+            tmp = HUDRenderer.HUD_FONT.deriveFont(22f);
         } catch (Throwable ignore) {
         }
         baseFont = tmp;
@@ -297,10 +287,6 @@ public class RankingScreenUI extends JPanel implements Showable {
     @Override
     public void onShown() {
         loadDataAndSort();
-    }
-
-    @Override
-    public void onHidden() {
     }
 
     // 투명 Back 버튼 스타일
