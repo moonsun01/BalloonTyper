@@ -1,10 +1,6 @@
 package com.balloon.ui.screens;
 
-import com.balloon.core.GameContext;
-import com.balloon.core.ScreenId;
-import com.balloon.core.ScreenRouter;
-import com.balloon.core.Session;
-import com.balloon.core.Showable;
+import com.balloon.core.*;
 import com.balloon.game.StaticWordProvider;
 import com.balloon.game.VersusGameRules;
 import com.balloon.game.WordProvider;
@@ -23,7 +19,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.List;
 
 public class VersusGamePanel extends JPanel implements Showable {
 
@@ -134,13 +129,13 @@ public class VersusGamePanel extends JPanel implements Showable {
 
     // === 아이템 토스트(싱글 모드랑 같은 박스 디자인) ===
     private String itemToastText = null;   // 표시할 문구
-    private long   itemToastExpireAt = 0L; // 끝나는 시간(ms)
+    private long itemToastExpireAt = 0L; // 끝나는 시간(ms)
     private boolean itemToastPositive = true; // 좋은 효과인지(색 구분용)
 
     // 결과 후 Retry/Home 오버레이 표시 여부
     private boolean showRetryOverlay = false;
     private Rectangle retryRect = null;
-    private Rectangle homeRect  = null;
+    private Rectangle homeRect = null;
 
     // 풍선 구조 3·4·5·6·5·4·3
     private static final int[] ROW_STRUCTURE = {3, 4, 5, 6, 5, 4, 3};
@@ -148,8 +143,8 @@ public class VersusGamePanel extends JPanel implements Showable {
     // BLIND 상태(반쪽 가리기용)
     private boolean blindP1 = false;
     private boolean blindP2 = false;
-    private long    blindEndP1 = 0L;
-    private long    blindEndP2 = 0L;
+    private long blindEndP1 = 0L;
+    private long blindEndP2 = 0L;
 
     public VersusGamePanel(ScreenRouter router) {
         this.router = router;
@@ -158,9 +153,9 @@ public class VersusGamePanel extends JPanel implements Showable {
         ).getImage();
 
         // 풍선 이미지 로드
-        balloonGreen  = new ImageIcon(getClass().getResource("/images/balloon_green.png")).getImage();
+        balloonGreen = new ImageIcon(getClass().getResource("/images/balloon_green.png")).getImage();
         balloonOrange = new ImageIcon(getClass().getResource("/images/balloon_orange.png")).getImage();
-        balloonPink   = new ImageIcon(getClass().getResource("/images/balloon_pink.png")).getImage();
+        balloonPink = new ImageIcon(getClass().getResource("/images/balloon_pink.png")).getImage();
         balloonPurple = new ImageIcon(getClass().getResource("/images/balloon_purple.png")).getImage();
         balloonYellow = new ImageIcon(getClass().getResource("/images/balloon_yellow.png")).getImage();
 
@@ -394,10 +389,14 @@ public class VersusGamePanel extends JPanel implements Showable {
             return balloonGreen;
         }
         switch (kind) {
-            case RED:   return balloonPink;
-            case GREEN: return balloonGreen;
-            case BLUE:  return balloonPurple;
-            default:    return balloonGreen;
+            case RED:
+                return balloonPink;
+            case GREEN:
+                return balloonGreen;
+            case BLUE:
+                return balloonPurple;
+            default:
+                return balloonGreen;
         }
     }
 
@@ -420,7 +419,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         int baseSpacingX = 80;
 
         int offsetDown = 30;
-        int offsetLeft  = -30;
+        int offsetLeft = -30;
 
         for (int r = 0; r < rowCount; r++) {
             int count = ROW_STRUCTURE[r];
@@ -548,9 +547,13 @@ public class VersusGamePanel extends JPanel implements Showable {
                 // 듀얼 모드는 시간 조작 안 씀
                 new ItemEffectApplier.TimeApi() {
                     @Override
-                    public void addSeconds(int delta) { }
+                    public void addSeconds(int delta) {
+                    }
+
                     @Override
-                    public int getTimeLeft() { return 0; }
+                    public int getTimeLeft() {
+                        return 0;
+                    }
                 },
                 // UI 효과: 일단 콘솔만
                 new ItemEffectApplier.UiApi() {
@@ -558,6 +561,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     public void showToast(String message) {
                         System.out.println("[ITEM-UI] " + message);
                     }
+
                     @Override
                     public void flashEffect(boolean positive) {
                         System.out.println(positive ? "[ITEM] GOOD" : "[ITEM] BAD");
@@ -606,26 +610,21 @@ public class VersusGamePanel extends JPanel implements Showable {
                 if (msg.startsWith("ROLE ")) {
                     String role = msg.substring(5).trim();
                     myRole = role;
-                }
-                else if (msg.equals("START")) {
+                } else if (msg.equals("START")) {
                     SwingUtilities.invokeLater(this::startIntroSequence);
-                }
-                else if (msg.startsWith("POP ")) {
+                } else if (msg.startsWith("POP ")) {
                     String[] parts = msg.split(" ", 3);
                     if (parts.length == 3) {
                         String who = parts[1];
                         String word = parts[2];
                         SwingUtilities.invokeLater(() -> onRemotePop(who, word));
                     }
-                }
-                else if (msg.startsWith("BLIND ")) {
+                } else if (msg.startsWith("BLIND ")) {
                     // 서버에서 "BLIND P1" 또는 "BLIND P2" 형식으로 옴
                     String attackerRole = msg.substring(6).trim(); // 아이템 사용한 사람(P1 / P2)
 
                     SwingUtilities.invokeLater(() -> startBlindFor(attackerRole));
-                }
-
-                else if (msg.startsWith("RESULT")) {
+                } else if (msg.startsWith("RESULT")) {
                     String[] parts = msg.split(" ");
                     String keyword = (parts.length >= 2) ? parts[1].trim() : "";
 
@@ -643,8 +642,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                     final ResultState finalState = state;
                     SwingUtilities.invokeLater(() -> startResultSequence(finalState));
                     // 같은 소켓으로 다음 라운드 계속
-                }
-                else if (msg.startsWith("TOAST ")) {
+                } else if (msg.startsWith("TOAST ")) {
                     String[] parts = msg.split(" ", 3);
                     if (parts.length >= 3) {
                         boolean positive = "1".equals(parts[1]);
@@ -653,8 +651,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                                 showItemToast(toastMsg, positive, false)
                         );
                     }
-                }
-                else if (msg.startsWith("REVERSE ")) {
+                } else if (msg.startsWith("REVERSE ")) {
                     // 포맷: REVERSE <시전자역할> <지속ms>
                     // 예: REVERSE P1 5000  (P1이 사용 → P2가 거꾸로 입력)
                     String[] parts = msg.split(" ");
@@ -1210,10 +1207,10 @@ public class VersusGamePanel extends JPanel implements Showable {
         } else if (r == 1) {
             kind = ItemKind.BALLOON_MINUS_2;
             category = ItemCategory.BALLOON;
-        } else if (r ==2 ){
+        } else if (r == 2) {
             kind = ItemKind.REVERSE_5S;      // 또는 BLIND로 바꾸고 싶으면 여기 수정
             category = ItemCategory.TRICK;
-        }else {
+        } else {
             kind = ItemKind.BLIND;         // 화면 블라인드 아이템
             category = ItemCategory.TRICK;
         }
@@ -1676,7 +1673,7 @@ public class VersusGamePanel extends JPanel implements Showable {
     private void startBlindFor(String attackerRole) {
         if (attackerRole == null || myRole == null) return;
 
-        long now   = System.currentTimeMillis();
+        long now = System.currentTimeMillis();
         long until = now + 3000L; // 3초 유지
 
         boolean iAmAttacker = attackerRole.equals(myRole);
@@ -1816,30 +1813,30 @@ public class VersusGamePanel extends JPanel implements Showable {
         g2.setFont(bigFont);
         FontMetrics fm = g2.getFontMetrics();
 
-        int centerLeftX  = w / 4;
+        int centerLeftX = w / 4;
         int centerRightX = w * 3 / 4;
-        int centerY      = h / 2;
+        int centerY = h / 2;
 
-        String leftText  = "";
+        String leftText = "";
         String rightText = "";
-        Color leftColor  = Color.BLACK;
+        Color leftColor = Color.BLACK;
         Color rightColor = Color.BLACK;
 
         switch (resultState) {
             case P1_WIN:
-                leftText  = "WIN !";
+                leftText = "WIN !";
                 rightText = "LOSE";
                 leftColor = Color.BLACK;
                 rightColor = new Color(255, 80, 80);
                 break;
             case P2_WIN:
-                leftText  = "LOSE";
+                leftText = "LOSE";
                 rightText = "WIN !";
                 leftColor = new Color(255, 80, 80);
                 rightColor = Color.BLACK;
                 break;
             case DRAW:
-                leftText  = "DRAW";
+                leftText = "DRAW";
                 rightText = "DRAW";
                 leftColor = rightColor = Color.BLACK;
                 break;
@@ -1847,7 +1844,7 @@ public class VersusGamePanel extends JPanel implements Showable {
                 break;
         }
 
-        int leftW  = fm.stringWidth(leftText);
+        int leftW = fm.stringWidth(leftText);
         int rightW = fm.stringWidth(rightText);
 
         // 아직 버튼 오버레이 안 띄운 상태라면, 텍스트만
@@ -1880,7 +1877,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         g2.drawString(rightText, centerRightX - rightW / 2, centerY);
 
         // === 여기부터 HOME 버튼 하나만 ===
-        String homeText  = "HOME";
+        String homeText = "HOME";
 
         Font buttonFont = HUDRenderer.HUD_FONT
                 .deriveFont(HUDRenderer.HUD_FONT.getSize2D() + 6.0f);
@@ -1893,7 +1890,7 @@ public class VersusGamePanel extends JPanel implements Showable {
         int centerX = w / 2;
         int btnTop = centerY + 70;
 
-        int homeX  = centerX - buttonW / 2;
+        int homeX = centerX - buttonW / 2;
 
         Color btnBg = new Color(0, 0, 0, 150);
         g2.setStroke(new BasicStroke(3f));
@@ -1911,7 +1908,7 @@ public class VersusGamePanel extends JPanel implements Showable {
 
         // 클릭 영역: HOME만
         // retryRect는 더 이상 사용 안 함
-        homeRect  = new Rectangle(homeX,  btnTop, buttonW, buttonH);
+        homeRect = new Rectangle(homeX, btnTop, buttonW, buttonH);
 
         g2.setFont(oldFont);
     }
@@ -1993,8 +1990,8 @@ public class VersusGamePanel extends JPanel implements Showable {
 
             p1ScoreSnapshot = ps1.getScore();
             p2ScoreSnapshot = ps2.getScore();
-            p1AccSnapshot   = ps1.getAccuracy();
-            p2AccSnapshot   = ps2.getAccuracy();
+            p1AccSnapshot = ps1.getAccuracy();
+            p2AccSnapshot = ps2.getAccuracy();
             p1ClearedSnapshot = ps1.isCleared();
             p2ClearedSnapshot = ps2.isCleared();
         }
@@ -2040,7 +2037,8 @@ public class VersusGamePanel extends JPanel implements Showable {
                 netClient.sendExit();
                 netClient.close();   // VersusClient에 close() 있으면 호출
             }
-        } catch (Exception ignore) {}
+        } catch (Exception ignore) {
+        }
 
         resultState = ResultState.NONE;
         finished = true;
