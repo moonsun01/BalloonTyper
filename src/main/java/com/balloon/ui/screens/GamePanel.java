@@ -1,19 +1,18 @@
 package com.balloon.ui.screens;
 
 import com.balloon.core.*;
-import com.balloon.game.GameRules;
-import com.balloon.game.GameState;
-import com.balloon.game.LevelConfig;
+import com.balloon.core.GameContext.GameMode;
+import com.balloon.game.*;
 import com.balloon.game.model.Balloon;
 import com.balloon.game.model.BalloonSprite;
 import com.balloon.items.ItemEffectApplier;
 import com.balloon.items.ItemSpawner;
+import com.balloon.ranking.RankingCsvRepository;
+import com.balloon.ranking.RankingRecord;
 import com.balloon.ui.assets.BalloonSkins;
 import com.balloon.ui.assets.BalloonSkins.Skin;
 import com.balloon.ui.assets.ImageAssets;
 import com.balloon.ui.skin.SecretItemSkin;
-import com.balloon.core.GameContext;
-import com.balloon.core.GameContext.GameMode;
 
 import javax.swing.*;
 import java.awt.*;
@@ -24,21 +23,30 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
 
-import com.balloon.core.GameContext;
-import com.balloon.ranking.RankingCsvRepository;
-import com.balloon.ranking.RankingRecord;
-
-// 🔽 단어 관련
-import com.balloon.game.CsvWordLoader;
-import com.balloon.game.WordProvider;
-import com.balloon.game.NonRepeatingWordProvider;
-
 /**
  * UI는 1번 코드 스타일 유지 + 게임 로직은 GameState/Rules/Judge 구조 그대로
  */
 public class GamePanel extends JPanel implements Showable {
 
-    private JLayeredPane layeredPane;
+    // ====== constants (시간/레이아웃) ======
+    private static final int PANEL_WIDTH = 1280;
+    private static final int PANEL_HEIGHT = 720;
+
+    private static final int TICK_INTERVAL_MS = 1000;          // 틱 타이머 간격
+    private static final int HUD_TIMER_INTERVAL_MS = 200;      // HUD 갱신 타이머
+    private static final int LEVEL_INTRO_DURATION_MS = 2000;   // 레벨 인트로 표시 시간
+    private static final int ITEM_TOAST_DURATION_MS = 800;     // 아이템 토스트 표시 시간
+    private static final int TOAST_DURATION_MS = 600;          // 하단 토스트 표시 시간
+    private static final int FLASH_DURATION_MS = 150;          // 화면 깜빡임 시간
+    private static final int STAGE_CLEAR_DELAY_MS = 1000;      // 스테이지 클리어 후 대기
+    private static final int FINAL_RESULT_DELAY_MS = 3000;     // 최종 결과 후 랭킹으로 이동 대기
+    private static final int OVERLAY_HIDE_DELAY_MS = 1200;     // SUCCESS/FAIL 오버레이 숨김 딜레이
+
+    private static final int LEVEL1_TIME_SEC = 90;
+    private static final int LEVEL2_TIME_SEC = 80;
+    private static final int LEVEL3_TIME_SEC = 70;
+
+    private final JLayeredPane layeredPane;
 
     // ====== Game / State / Item ======
     private final LevelConfig levelConfig = new LevelConfig();
@@ -47,10 +55,10 @@ public class GamePanel extends JPanel implements Showable {
 
     // 안내 오버레이용 상태
     private boolean levelIntroShowing = false;
-    private javax.swing.Timer levelIntroTimer;
+    private final javax.swing.Timer levelIntroTimer;
 
     // gray.png 배경 이미지
-    private BufferedImage grayOverlayImg;
+    private final BufferedImage grayOverlayImg;
 
     // 모델 풍선 리스트 (GameJudge에 넘기는 리스트)
     private final List<Balloon> balloons = new ArrayList<>();
@@ -61,8 +69,14 @@ public class GamePanel extends JPanel implements Showable {
     // 스코어 브레이크다운 (UI용 임시)
     private int correctCount = 0;
     private int wrongCount = 0;
+
+    @SuppressWarnings("unused")
     private int wordScore = 0;  // 정답 1개당 10점
+
+    @SuppressWarnings("unused")
     private int timeBonus = 0;  // 남은 시간 기반 보너스
+
+    @SuppressWarnings("unused")
     private int itemBonus = 0;  // 아이템으로 인한 변화
 
     private int totalScore = 0; //총점 (단어 + 시간 + 아이템)
@@ -71,13 +85,6 @@ public class GamePanel extends JPanel implements Showable {
     private boolean firstShown = true;
 
     private final JLabel itemToastLabel = new JLabel("", SwingConstants.CENTER);
-
-    // ===== [RESULT OVERLAY] 게임 종료 후 SUCCESS/FAIL + SCORE 표시용 =====
-    private JPanel resultOverlayPanel;   // (현재는 사용 안하지만 남겨둠)
-    private JLabel resultTitleLabel;
-    private JLabel resultScoreLabel;
-    private javax.swing.Timer resultTimer;
-    private boolean showingResult = false;
 
     // UI 콜백을 제공하는 Applier (시간/토스트/필드 조작)
     private final ItemEffectApplier applier = new ItemEffectApplier(
@@ -125,7 +132,7 @@ public class GamePanel extends JPanel implements Showable {
         itemToastLabel.setVisible(true);
         itemToastLabel.repaint();   // 박스 포함해서 다시 그리기
 
-        javax.swing.Timer t = new javax.swing.Timer(800, e -> itemToastLabel.setVisible(false));
+        javax.swing.Timer t = new javax.swing.Timer(ITEM_TOAST_DURATION_MS, e -> itemToastLabel.setVisible(false));
         t.setRepeats(false);
         t.start();
     }
@@ -150,7 +157,7 @@ public class GamePanel extends JPanel implements Showable {
 
     // 토스트 / 오버레이
     private final JLabel toastLabel = new JLabel(" ", SwingConstants.CENTER);
-    private final JLabel overlayLabel = new JLabel(" ", SwingConstants.CENTER);
+    //private final JLabel overlayLabel = new JLabel(" ", SwingConstants.CENTER);
 
     // 입력 필드
     private final JTextField inputField = new JTextField();
@@ -162,7 +169,7 @@ public class GamePanel extends JPanel implements Showable {
     private boolean resultShown = false;
 
     private final javax.swing.Timer overlayTimer =
-            new javax.swing.Timer(1200, e -> {
+            new javax.swing.Timer(OVERLAY_HIDE_DELAY_MS, e -> {
                 // ⚠ 인트로(레벨 안내) 중이면 SUCCESS/FAIL 타이머가 건드리지 않도록
                 if (levelIntroShowing || resultShown) {
                     return;
@@ -178,28 +185,21 @@ public class GamePanel extends JPanel implements Showable {
     // 중앙 플레이 영역(풍선 캔버스)
     private final PlayField playField;
 
-    // 렌더러
-    private final com.balloon.ui.render.BalloonSpriteRenderer renderer =
-            new com.balloon.ui.render.BalloonSpriteRenderer();
-
     // 배경 / 집 / 하트 이미지
     private BufferedImage bgImg;
     private BufferedImage houseImg;
-    private BufferedImage heartImg;
+    private final BufferedImage heartImg;
 
     // 기타 상태
-    private volatile boolean navigatedAway = false;
     private boolean stageClearedThisRound = false;
     public static int lastCompletedStage = 1;
 
     // 전역 컨텍스트
-    private final GameContext ctx = GameContext.getInstance();
+    //private final GameContext ctx = GameContext.getInstance();
 
     // HUD 활성 아이템 배지용 타이머(그냥 repaint만 돌리는 용도)
     private final javax.swing.Timer hudTimer =
-            new javax.swing.Timer(200, e -> repaint());
-
-    private boolean caretOn = true;
+            new javax.swing.Timer(HUD_TIMER_INTERVAL_MS, e -> repaint());
 
     public GamePanel(ScreenRouter router) {
         this.router = router;
@@ -215,31 +215,10 @@ public class GamePanel extends JPanel implements Showable {
         List<String> wordList = CsvWordLoader.loadWords("/data/words.csv");
         this.wordProvider = new NonRepeatingWordProvider(wordList);
 
-        // ========= 레이아웃/배경 =========
-        setLayout(new BorderLayout());
-        setOpaque(false);
-
         // ========= 상단 바 (좌: HUD, 우: 아이템 전설) =========
         JPanel topBar = new JPanel(new BorderLayout());
         topBar.setOpaque(false);
 
-//        JPanel hud = new JPanel(new BorderLayout());
-//        hud.setOpaque(false);
-//
-//        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
-//        left.setOpaque(false);
-//
-//        timeLabel.setForeground(Color.WHITE);
-//        scoreLabel.setForeground(Color.WHITE);
-//        playerLabel.setForeground(Color.WHITE);
-//        modeLabel.setForeground(Color.WHITE);
-
-//        left.add(timeLabel);
-//        left.add(scoreLabel);
-//        left.add(new JLabel(" | "));
-//        left.add(playerLabel);
-//        left.add(modeLabel);
-//        hud.add(left, BorderLayout.WEST);
 
         JPanel legend = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 8));
         legend.setOpaque(false);
@@ -272,7 +251,7 @@ public class GamePanel extends JPanel implements Showable {
         // ========= layeredPane 생성 =========
         layeredPane = new JLayeredPane();
         layeredPane.setLayout(null);
-        playField.setBounds(0, 0, 1280, 720);
+        playField.setBounds(0, 0, PANEL_WIDTH, PANEL_HEIGHT);
         layeredPane.add(playField, JLayeredPane.DEFAULT_LAYER); // playField는 기본 레이어에 추가
 
         // ========= itemToastLabel 추가 =========
@@ -282,12 +261,12 @@ public class GamePanel extends JPanel implements Showable {
         int boxY = 260;                // 세로 위치
 
         itemToastLabel.setBounds(boxX, boxY, boxW, boxH);
-        layeredPane.add(itemToastLabel, Integer.valueOf(JLayeredPane.PALETTE_LAYER));
+        layeredPane.add(itemToastLabel, JLayeredPane.PALETTE_LAYER);
 
         // ★ 중앙 wordLabel도 layeredPane의 위 레이어에 추가
-        wordLabel.setBounds(0, 160, 1280, 200);   // 화면 중앙쯤
+        wordLabel.setBounds(0, 160, PANEL_WIDTH, 200);   // 화면 중앙쯤
         wordLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        layeredPane.add(wordLabel, Integer.valueOf(JLayeredPane.MODAL_LAYER));
+        layeredPane.add(wordLabel, JLayeredPane.MODAL_LAYER);
 
         add(layeredPane, BorderLayout.CENTER);
 
@@ -335,11 +314,11 @@ public class GamePanel extends JPanel implements Showable {
 
         add(inputBar, BorderLayout.SOUTH);
 
-        // ========= 오버레이 라벨 (SUCCESS / FAIL + SCORE) =========
-        overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 42f));
-        overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
-        overlayLabel.setVisible(false);
+//        // ========= 오버레이 라벨 (SUCCESS / FAIL + SCORE) =========
+//        overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 42f));
+//        overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
+//        overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
+//        overlayLabel.setVisible(false);
 
         overlayTimer.setRepeats(false);
 
@@ -368,7 +347,8 @@ public class GamePanel extends JPanel implements Showable {
         toastLabel.setFocusable(false);
 
         // ========= 틱 타이머 (1초) =========
-        tickTimer = new javax.swing.Timer(1000, e -> {
+        tickTimer = new javax.swing.Timer(TICK_INTERVAL_MS, e -> {
+
             if (resultShown) return;
 
             // 🔥 인트로(레벨 안내) 떠 있는 동안에는 시간 줄이지 않기
@@ -392,7 +372,8 @@ public class GamePanel extends JPanel implements Showable {
         });
 
         // ★ 레벨 시작 안내 타이머 (2초)
-        levelIntroTimer = new javax.swing.Timer(2000, ev -> {
+        levelIntroTimer = new javax.swing.Timer(LEVEL_INTRO_DURATION_MS, ev -> {
+
             // 안내 끝나면 오버레이 숨기고 게임 시작
             levelIntroShowing = false;
             hideLevelIntro();
@@ -436,10 +417,10 @@ public class GamePanel extends JPanel implements Showable {
         int targetSec;
 
         switch (level) {
-            case 1 -> targetSec = 90;
-            case 2 -> targetSec = 80;
-            case 3 -> targetSec = 70;
-            default -> targetSec = 70;   // 혹시 모를 예외
+            case 1 -> targetSec = LEVEL1_TIME_SEC;
+            case 2 -> targetSec = LEVEL2_TIME_SEC;
+            case 3 -> targetSec = LEVEL3_TIME_SEC;
+            default -> targetSec = LEVEL3_TIME_SEC;  // 혹시 모를 예외
         }
 
         int delta = targetSec - state.getTimeLeft();
@@ -451,7 +432,7 @@ public class GamePanel extends JPanel implements Showable {
     // --------------------------------------------------
     @Override
     public Dimension getPreferredSize() {
-        return new Dimension(1280, 720);
+        return new Dimension(PANEL_WIDTH, PANEL_HEIGHT);
     }
 
     @Override
@@ -480,6 +461,7 @@ public class GamePanel extends JPanel implements Showable {
 
         if (name == null || name.isBlank()) {
             try {
+                GameContext ctx = GameContext.getInstance();
                 String fromCtx = (ctx != null) ? ctx.getPlayerName() : null;
                 if (fromCtx != null && !fromCtx.isBlank()) name = fromCtx;
             } catch (Exception ignore) {
@@ -495,6 +477,7 @@ public class GamePanel extends JPanel implements Showable {
 
         String mode = "-";
         try {
+            GameContext ctx = GameContext.getInstance();
             String m = (ctx != null) ? String.valueOf(ctx.getMode()) : null;
             if (m != null && !m.equalsIgnoreCase("null") && !m.isBlank()) mode = m;
         } catch (Exception ignore) {
@@ -523,11 +506,7 @@ public class GamePanel extends JPanel implements Showable {
 
     // ★ CSV에서 읽어온 단어를 화면용으로 정리
     private String cleanWord(String w) {
-        if (w == null) return "";
-        w = w.trim();
-        w = java.text.Normalizer.normalize(w, java.text.Normalizer.Form.NFC);
-        w = w.replaceAll("[^\\p{L}\\p{Nd}]", "");
-        return w;
+        return norm(w);
     }
 
     // --------------------------------------------------
@@ -554,7 +533,7 @@ public class GamePanel extends JPanel implements Showable {
 
     // wordProvider에서 "현재 필드에 없는" 단어 골라오기
     private String nextUniqueWord() {
-        String w = "empty";
+        String w;
         int tries = 0;
 
         do {
@@ -625,7 +604,7 @@ public class GamePanel extends JPanel implements Showable {
     private void showToast(String msg, Color color) {
         toastLabel.setForeground(color);
         toastLabel.setText(msg);
-        javax.swing.Timer t = new javax.swing.Timer(600, e -> toastLabel.setText(" "));
+        javax.swing.Timer t = new javax.swing.Timer(TOAST_DURATION_MS, e -> toastLabel.setText(" "));
         t.setRepeats(false);
         t.start();
     }
@@ -634,7 +613,7 @@ public class GamePanel extends JPanel implements Showable {
         Color c = positive ? new Color(0xCCFFCC) : new Color(0xFFCCCC);
         Color old = getBackground();
         setBackground(c);
-        javax.swing.Timer t = new javax.swing.Timer(150, e -> setBackground(old));
+        javax.swing.Timer t = new javax.swing.Timer(FLASH_DURATION_MS, e -> setBackground(old));
         t.setRepeats(false);
         t.start();
     }
@@ -681,7 +660,7 @@ public class GamePanel extends JPanel implements Showable {
 
         lastCompletedStage = state.getLevel();
 
-        new javax.swing.Timer(1000, e -> {
+        new javax.swing.Timer(STAGE_CLEAR_DELAY_MS, e -> {
             // 다음 레벨로 이동
             state.nextLevel();
 
@@ -717,7 +696,9 @@ public class GamePanel extends JPanel implements Showable {
         }};
     }
 
-    /** 싱글모드를 완전히 처음부터 다시 시작할 때 호출 */
+    /**
+     * 싱글모드를 완전히 처음부터 다시 시작할 때 호출
+     */
     private void resetGameForNewRun() {
         // 1) 타이머/루프/인트로 상태 정리
         stopGameLoops();                    // tickTimer, playField 정지
@@ -727,8 +708,6 @@ public class GamePanel extends JPanel implements Showable {
         levelIntroShowing = false;
         stageClearedThisRound = false;
         resultShown = false;
-        showingResult = false;
-        navigatedAway = false;
 
         // 2) 점수/카운트 리셋
         correctCount = 0;
@@ -868,7 +847,7 @@ public class GamePanel extends JPanel implements Showable {
         toastLabel.setText(" ");
 
         // 3초 뒤 RANKING 화면으로 이동 (※ 싱글 모드에서만)
-        new javax.swing.Timer(3000, e -> {
+        new javax.swing.Timer(FINAL_RESULT_DELAY_MS, e -> {
             ((javax.swing.Timer) e.getSource()).stop();
 
             if (router != null) {
@@ -897,7 +876,6 @@ public class GamePanel extends JPanel implements Showable {
 
     @Override
     public void onShown() {
-        navigatedAway = false;
         updateContextHud();
 
         // 1) 이미 한 번 게임이 끝났던 상태라면 → 완전 리셋해서 새 게임 시작
@@ -928,8 +906,8 @@ public class GamePanel extends JPanel implements Showable {
         grabFocusSafely();
     }
 
+    @Override
     public void onHidden() {
-        navigatedAway = true;
         stopGameLoops();
         if (overlayTimer.isRunning()) overlayTimer.stop();
     }
@@ -981,8 +959,8 @@ public class GamePanel extends JPanel implements Showable {
     //  내부 클래스 : PlayField
     // --------------------------------------------------
     private final class PlayField extends JPanel {
-        private static final int DESIGN_W = 1280;
-        private static final int DESIGN_H = 720;
+        private static final int DESIGN_W = PANEL_WIDTH;
+        private static final int DESIGN_H = PANEL_HEIGHT;
 
         private final com.balloon.ui.render.BalloonSpriteRenderer renderer =
                 new com.balloon.ui.render.BalloonSpriteRenderer();
@@ -990,8 +968,8 @@ public class GamePanel extends JPanel implements Showable {
         private final Random rnd = new Random();
         private final javax.swing.Timer frameTimer;
 
-        private Rectangle houseRect = new Rectangle(0, 0, 0, 0);
-        private Point houseAnchor = new Point(0, 0);
+        private final Rectangle houseRect = new Rectangle(0, 0, 0, 0);
+        private final Point houseAnchor = new Point(0, 0);
 
         PlayField() {
             setOpaque(false);
@@ -1415,6 +1393,7 @@ public class GamePanel extends JPanel implements Showable {
 
         grabFocusSafely();
     }
+
 
     // --------------------------------------------------
     //  랭킹 CSV 저장
